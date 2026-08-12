@@ -1,8 +1,12 @@
 'use strict';
 
 /**
- * Service layer placeholder.
- * Auth, profile, and progress services will be added in later phases.
+ * Service layer exports for authentication and future profile/progress services.
  */
 
-module.exports = {};
+module.exports = {
+  passwords: require('./passwords'),
+  tokens: require('./tokens'),
+  sessions: require('./sessions'),
+  users: require('./users')
+};

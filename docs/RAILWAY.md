@@ -50,11 +50,12 @@ Hard rule: neither Vercel client code nor Electron may connect directly to Postg
 4. Set backend variables:
    - `NODE_ENV=production`
    - `DATABASE_URL=${{Postgres.DATABASE_URL}}` (private/internal URL preferred)
-   - `FRONTEND_URL` / `API_PUBLIC_URL` when CORS and redirects exist (Phase 3+)
-   - Auth secrets only when Phase 3 lands
+   - `ACCESS_TOKEN_SECRET` / `REFRESH_TOKEN_SECRET` (long random values, ≥32 chars)
+   - `FRONTEND_URL` / `API_PUBLIC_URL` when CORS and redirects exist
 5. Run migrations once from a secure operator context:
    - `npm run db:migrate` against the Railway DB using a one-off/run command or CI job with server-side credentials
 6. Expose the backend HTTP service publicly (Railway domain), then place Cloudflare in front later.
+7. Verify `/health`, `/health/db`, and auth endpoints (`/auth/register`, `/auth/login`) over HTTPS.
 
 Do **not** set `DATABASE_URL`, `VITE_DATABASE_URL`, or `NEXT_PUBLIC_DATABASE_URL` on Vercel or in Electron.
 

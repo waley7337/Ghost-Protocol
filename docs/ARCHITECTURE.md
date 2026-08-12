@@ -42,7 +42,17 @@ The `backend/` package now includes:
 - `GET /health` and `GET /health/db` (db health returns only ok/unavailable)
 - Railway-oriented process readiness: `PORT`/`HOST` bind, production config gate, graceful pool shutdown
 
-There is still **no** authentication API, **no** profile/progress API, **no** live Railway/Vercel/Cloudflare deployment, and **no** Electron/web client connection to this backend.
+There is still **no** profile/progress API, **no** live Railway/Vercel/Cloudflare deployment, and **no** Electron/web client connection to this backend. Legacy Supabase client code remains in the Electron app until a later migration phase.
+
+### Phase 3 backend authentication (implemented, not wired to clients)
+
+- Email/password register + login
+- Argon2id password hashing
+- Short-lived JWT access tokens (HS256, iss/aud/exp verified)
+- Server-tracked refresh sessions with HMAC-SHA256 token hashes (no plaintext refresh tokens in DB)
+- Refresh-token rotation and logout revocation
+- `GET /auth/me` protected by centralized auth middleware (server-derived identity)
+- In-process auth rate limiting foundation (direct socket IP by default; `TRUST_PROXY` opt-in)
 
 Production hosting intent (not deployed yet): **Railway** for Backend API + PostgreSQL. See `docs/RAILWAY.md`.
 

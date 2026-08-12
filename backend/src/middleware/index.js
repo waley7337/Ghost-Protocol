@@ -1,10 +1,12 @@
 'use strict';
 
 /**
- * Placeholder for future middleware (authn, rate limiting, validation).
- * Phase 1 intentionally exports nothing beyond a marker.
+ * Middleware exports.
  */
 
 module.exports = {
-  // Planned: requireAuth, rateLimit, validateBody, securityHeaders
+  response: require('./response'),
+  request: require('./request'),
+  auth: require('./auth'),
+  rateLimit: require('./rateLimit')
 };

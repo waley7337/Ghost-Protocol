@@ -82,6 +82,22 @@ The retained SQL migration defines row-level security policies intended to restr
 **Non-claim:** Creating a `sessions` table does **not** mean session authentication, rotation, or revocation logic is implemented.  
 **Non-claim:** Railway readiness docs/code do **not** mean a Railway project has been deployed.
 
+### Backend authentication foundation (Phase 3)
+
+- Argon2id password hashing (`argon2` library)
+- `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`
+- Short-lived JWT access tokens (`jose`, HS256) with explicit issuer, audience, and expiration checks
+- Refresh tokens stored only as HMAC-SHA256 hashes in `sessions.refresh_token_hash`
+- Refresh-token rotation (used refresh token session is revoked; new session issued)
+- Logout revokes the corresponding server-side session
+- Central `requireAuth` middleware derives `req.auth.userId` from verified access tokens only
+- Safe auth error responses (no password hashes, tokens, SQL, or stack traces)
+- In-process rate limiting on auth endpoints; does not trust `X-Forwarded-For` unless `TRUST_PROXY=true`
+- Production startup requires `ACCESS_TOKEN_SECRET` and `REFRESH_TOKEN_SECRET` (≥32 chars)
+
+**Non-claim:** Electron/web clients are **not** wired to these endpoints yet. Legacy Supabase auth remains in the desktop app.  
+**Non-claim:** Google OAuth, password reset emails, and distributed/edge rate limits are **not** implemented.
+
 ### PostgreSQL privilege model (documented intent)
 
 Ideal separation:
@@ -110,22 +126,19 @@ Practical hosted fallback: many managed PostgreSQL providers issue a single powe
 
 The following controls remain unimplemented.
 
-### Authentication (planned)
+### Authentication (planned / remaining)
 
-- Argon2id password hashing
-- Short-lived access authentication
-- Refresh / session rotation
-- Session revocation and logout invalidation
 - Password reset with safe, time-limited tokens
-- Brute-force / credential-stuffing protections
-- Safe authentication error responses (no user enumeration beyond carefully chosen messages)
+- Google OAuth (desktop deep-link + web redirect)
+- Email verification workflow
+- Distributed / Cloudflare edge rate limiting and bot protections
+- Client migration off Supabase onto these backend endpoints
 
-### Authorization (planned)
+### Authorization (planned / remaining)
 
-- Server-derived user identity from validated credentials/session
-- Never trust client-supplied `user_id` for ownership decisions
-- Explicit ownership checks on every private profile/progress operation
-- Cross-user isolation verified by automated tests
+- Profile and progress ownership endpoints (Phase 4)
+- Cross-user isolation tests against live PostgreSQL
+- Broader API authorization beyond `/auth/me`
 
 ### API hardening (planned)
 
@@ -168,7 +181,7 @@ The following controls remain unimplemented.
 
 ## Explicit non-claims
 
-- Phase 2 does **not** provide authentication, authorization, or session issuance.
-- Presence of `sessions` / `password_hash` columns does **not** mean hashing, login, or token handling is implemented.
-- Presence of `backend/` does **not** mean the API is production-ready or connected to Electron/web.
-- Legacy Supabase publishable keys in client bundles are not database passwords; they also do not satisfy the target architecture (clients must not talk to the data plane directly).
+- Phase 3 authentication is backend-only and **not** connected to Electron/web UI yet.
+- Presence of auth endpoints does **not** mean production is deployed on Railway.
+- Legacy Supabase client code remains until an explicit client migration phase.
+- In-process rate limiting is a foundation, not a complete abuse-prevention system.

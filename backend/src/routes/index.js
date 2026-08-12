@@ -1,17 +1,30 @@
 'use strict';
 
 const { sendJson } = require('../middleware/response');
-const { createPool, checkConnection, closePool } = require('../db');
+const { createPool, checkConnection, getPool, closePool } = require('../db');
+const { createRequireAuth } = require('../middleware/auth');
+const { createRateLimiter } = require('../middleware/rateLimit');
+const { createAuthHandlers } = require('./auth');
+const { requireAuthSecrets, ConfigError } = require('../config');
 
 /**
- * Phase 2 routes:
+ * Phase 3 routes:
  * - GET /health
- * - GET /health/db (connectivity only; no infrastructure details)
- *
- * Auth/profile/progress endpoints are intentionally absent until later phases.
+ * - GET /health/db
+ * - POST /auth/register|login|refresh|logout
+ * - GET /auth/me
  */
 
 function createRequestListener(config, dependencies = {}) {
+  let authReady = false;
+  try {
+    requireAuthSecrets(config);
+    authReady = true;
+  } catch (error) {
+    if (!(error instanceof ConfigError)) throw error;
+    authReady = false;
+  }
+
   const checkDb =
     dependencies.checkDb ||
     (async () => {
@@ -24,23 +37,81 @@ function createRequestListener(config, dependencies = {}) {
       }
     });
 
+  const poolFactory =
+    dependencies.getPool ||
+    (() => {
+      if (!config.databaseUrl) {
+        throw new ConfigError('DATABASE_URL is required for authentication endpoints');
+      }
+      return getPool(config);
+    });
+
+  const requireAuth = dependencies.requireAuth || createRequireAuth(config);
+  const rateLimitAuth =
+    dependencies.rateLimitAuth ||
+    createRateLimiter({
+      windowMs: config.authRateLimitWindowMs,
+      max: config.authRateLimitMax,
+      trustProxy: config.trustProxy,
+      keyPrefix: 'auth'
+    });
+
+  const auth = createAuthHandlers({
+    config,
+    getPool: poolFactory,
+    requireAuth,
+    rateLimitAuth
+  });
+
   return async function requestListener(req, res) {
     try {
-      if (req.method === 'GET' && req.url === '/health') {
+      const path = req.url ? req.url.split('?')[0] : '';
+
+      if (req.method === 'GET' && path === '/health') {
         sendJson(res, 200, {
           status: 'ok',
           service: 'ghost-protocol-api',
-          phase: 2,
-          environment: config.nodeEnv
+          phase: 3,
+          environment: config.nodeEnv,
+          authConfigured: authReady
         });
         return;
       }
 
-      if (req.method === 'GET' && req.url === '/health/db') {
+      if (req.method === 'GET' && path === '/health/db') {
         const ok = await checkDb();
         sendJson(res, ok ? 200 : 503, {
           status: ok ? 'ok' : 'unavailable'
         });
+        return;
+      }
+
+      if (!authReady && path.startsWith('/auth/')) {
+        sendJson(res, 503, {
+          error: 'auth_not_configured',
+          message: 'Authentication secrets are not configured'
+        });
+        return;
+      }
+
+      if (req.method === 'POST' && path === '/auth/register') {
+        await auth.register(req, res);
+        return;
+      }
+      if (req.method === 'POST' && path === '/auth/login') {
+        await auth.login(req, res);
+        return;
+      }
+      if (req.method === 'POST' && path === '/auth/refresh') {
+        await auth.refresh(req, res);
+        return;
+      }
+      if (req.method === 'POST' && path === '/auth/logout') {
+        await auth.logout(req, res);
+        return;
+      }
+      if (req.method === 'GET' && path === '/auth/me') {
+        await auth.me(req, res);
         return;
       }
 

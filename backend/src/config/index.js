@@ -2,7 +2,7 @@
 
 /**
  * Server-side configuration.
- * DATABASE_URL is never logged and must never be shipped to clients.
+ * Secrets (DATABASE_URL, token secrets) are never logged and must never ship to clients.
  */
 
 class ConfigError extends Error {
@@ -27,6 +27,11 @@ function parsePort(value, { required = false } = {}) {
   return port;
 }
 
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function loadConfig(env = process.env) {
   const nodeEnv = env.NODE_ENV || 'development';
   const isProduction = nodeEnv === 'production';
@@ -35,16 +40,24 @@ function loadConfig(env = process.env) {
   return Object.freeze({
     nodeEnv,
     isProduction,
-    // Railway/containers inject PORT. Bind host defaults to all interfaces.
     port: parsePort(env.PORT, { required: isProduction }),
-    host: env.HOST || (isProduction ? '0.0.0.0' : '0.0.0.0'),
+    host: env.HOST || '0.0.0.0',
     databaseUrl: databaseUrl || null,
     frontendUrl: env.FRONTEND_URL || null,
     apiPublicUrl: env.API_PUBLIC_URL || null,
     databaseSsl: env.DATABASE_SSL || null,
     databaseSslCaPath: env.DATABASE_SSL_CA || null,
-    // Default true: do not weaken certificate validation unless explicitly opted out.
-    databaseSslRejectUnauthorized: env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false'
+    databaseSslRejectUnauthorized: env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false',
+    accessTokenSecret: env.ACCESS_TOKEN_SECRET || null,
+    refreshTokenSecret: env.REFRESH_TOKEN_SECRET || null,
+    jwtIssuer: env.JWT_ISSUER || 'ghost-protocol-api',
+    jwtAudience: env.JWT_AUDIENCE || 'ghost-protocol-clients',
+    accessTokenTtlSeconds: parsePositiveInt(env.ACCESS_TOKEN_TTL_SECONDS, 15 * 60),
+    refreshTokenTtlSeconds: parsePositiveInt(env.REFRESH_TOKEN_TTL_SECONDS, 60 * 60 * 24 * 30),
+    authRateLimitWindowMs: parsePositiveInt(env.AUTH_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
+    authRateLimitMax: parsePositiveInt(env.AUTH_RATE_LIMIT_MAX, 20),
+    trustProxy: env.TRUST_PROXY === 'true',
+    jsonBodyLimitBytes: parsePositiveInt(env.JSON_BODY_LIMIT_BYTES, 16 * 1024)
   });
 }
 
@@ -53,6 +66,15 @@ function requireDatabaseUrl(config) {
     throw new ConfigError('DATABASE_URL is required for database operations');
   }
   return config.databaseUrl;
+}
+
+function requireAuthSecrets(config) {
+  if (!config.accessTokenSecret || config.accessTokenSecret.length < 32) {
+    throw new ConfigError('ACCESS_TOKEN_SECRET must be set to a value at least 32 characters');
+  }
+  if (!config.refreshTokenSecret || config.refreshTokenSecret.length < 32) {
+    throw new ConfigError('REFRESH_TOKEN_SECRET must be set to a value at least 32 characters');
+  }
 }
 
 /**
@@ -72,7 +94,8 @@ function assertProductionConfig(config) {
     throw new ConfigError('DATABASE_URL must be a postgresql:// or postgres:// URL');
   }
 
-  // Reject obviously client-side naming mistakes if somehow injected.
+  requireAuthSecrets(config);
+
   if (process.env.VITE_DATABASE_URL || process.env.NEXT_PUBLIC_DATABASE_URL) {
     throw new ConfigError(
       'Client-exposed database variables are forbidden (VITE_DATABASE_URL / NEXT_PUBLIC_DATABASE_URL)'
@@ -84,6 +107,7 @@ module.exports = {
   ConfigError,
   loadConfig,
   requireDatabaseUrl,
+  requireAuthSecrets,
   assertProductionConfig,
   parsePort
 };

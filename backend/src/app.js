@@ -1,16 +1,10 @@
 'use strict';
 
 /**
- * Ghost Protocol backend entrypoint (Phase 2).
+ * Ghost Protocol backend entrypoint (Phase 3).
  *
- * Railway-ready:
- * - listens on process.env.PORT
- * - binds 0.0.0.0 for container networking
- * - requires DATABASE_URL in production
- * - closes the PostgreSQL pool on shutdown
- * - never logs secrets
- *
- * Authentication and private resource APIs are not implemented yet.
+ * Railway-ready HTTP API with authentication foundation.
+ * Electron/web clients are not wired to these endpoints yet.
  */
 
 const http = require('node:http');

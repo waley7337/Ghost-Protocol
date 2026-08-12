@@ -48,26 +48,26 @@ Renderer ──IPC──► preload/main
 ### Credential stuffing
 
 - **Threat:** Attackers try leaked email/password pairs at scale.
-- **Planned mitigations:** Rate limiting, lockout/backoff, monitoring/audit logs, optional bot protections at Cloudflare edge.
-- **Current:** Not implemented in first-party backend (backend not built).
+- **Planned mitigations:** Cloudflare/edge rate limits, monitoring/audit logs, optional bot protections.
+- **Current:** In-process auth rate limiting foundation on register/login/refresh; generic invalid-credential errors.
 
 ### Brute force
 
 - **Threat:** Online password guessing against login endpoints.
-- **Planned mitigations:** Per-IP and per-account rate limits, Argon2id hashing cost, generic auth errors.
-- **Current:** Relies on legacy Supabase project behavior when reachable; project is currently unreachable.
+- **Planned mitigations:** Edge rate limits; stronger lockout/backoff policies as needed.
+- **Current:** Argon2id hashing; per-IP in-process rate limit; generic login errors; dummy verify work on unknown users.
 
 ### Session theft
 
 - **Threat:** Stolen access tokens/cookies used by an attacker.
-- **Planned mitigations:** Short-lived access credentials, secure cookie flags where used, TLS everywhere, logout/revocation, avoid storing long-lived secrets in localStorage when a better option exists for web.
-- **Current:** Supabase client session persistence in the renderer (legacy).
+- **Planned mitigations:** Secure client storage choices when wiring web/Electron; short TTLs tuned for UX.
+- **Current:** Short-lived JWT access tokens; refresh rotation; logout revocation; TLS required in production DB path.
 
 ### Refresh-token reuse
 
-- **Threat:** Stolen refresh/session token replayed; rotation not enforced.
-- **Planned mitigations:** Refresh/session rotation, reuse detection where practical, server-side session revocation list/store.
-- **Current:** Not implemented in first-party backend.
+- **Threat:** Stolen refresh/session token replayed after rotation.
+- **Planned mitigations:** Optional reuse detection that revokes the whole session family.
+- **Current:** Refresh rotation revokes the previous session row; reused refresh tokens fail as revoked/invalid.
 
 ### XSS
 

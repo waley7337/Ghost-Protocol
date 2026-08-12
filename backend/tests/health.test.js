@@ -15,9 +15,24 @@ const {
 } = require('../src/db');
 const { listMigrationFiles, DEFAULT_MIGRATIONS_DIR } = require('../src/db/migrate');
 
-test('GET /health returns phase 2 scaffold payload', async () => {
+test('GET /health returns phase 3 scaffold payload', async () => {
   const server = http.createServer(
-    createRequestListener({ nodeEnv: 'test', port: 0, databaseUrl: null })
+    createRequestListener(
+      {
+        nodeEnv: 'test',
+        port: 0,
+        databaseUrl: null,
+        accessTokenSecret: 'test-access-secret-at-least-32-chars-long',
+        refreshTokenSecret: 'test-refresh-secret-at-least-32-chars-long',
+        jwtIssuer: 'ghost-protocol-api-test',
+        jwtAudience: 'ghost-protocol-clients-test',
+        authRateLimitWindowMs: 60000,
+        authRateLimitMax: 100,
+        trustProxy: false,
+        jsonBodyLimitBytes: 16384
+      },
+      { checkDb: async () => false }
+    )
   );
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -29,7 +44,7 @@ test('GET /health returns phase 2 scaffold payload', async () => {
     const body = await response.json();
     assert.equal(body.status, 'ok');
     assert.equal(body.service, 'ghost-protocol-api');
-    assert.equal(body.phase, 2);
+    assert.equal(body.phase, 3);
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -40,7 +55,19 @@ test('GET /health returns phase 2 scaffold payload', async () => {
 test('GET /health/db returns unavailable without exposing internals', async () => {
   const server = http.createServer(
     createRequestListener(
-      { nodeEnv: 'test', port: 0, databaseUrl: null },
+      {
+        nodeEnv: 'test',
+        port: 0,
+        databaseUrl: null,
+        accessTokenSecret: 'test-access-secret-at-least-32-chars-long',
+        refreshTokenSecret: 'test-refresh-secret-at-least-32-chars-long',
+        jwtIssuer: 'ghost-protocol-api-test',
+        jwtAudience: 'ghost-protocol-clients-test',
+        authRateLimitWindowMs: 60000,
+        authRateLimitMax: 100,
+        trustProxy: false,
+        jsonBodyLimitBytes: 16384
+      },
       {
         checkDb: async () => {
           throw new Error('postgresql://user:secret@db.example/ghost host details');
@@ -69,7 +96,19 @@ test('GET /health/db returns unavailable without exposing internals', async () =
 test('GET /health/db maps connectivity to ok/unavailable only', async () => {
   const server = http.createServer(
     createRequestListener(
-      { nodeEnv: 'test', port: 0, databaseUrl: 'postgresql://example' },
+      {
+        nodeEnv: 'test',
+        port: 0,
+        databaseUrl: 'postgresql://example',
+        accessTokenSecret: 'test-access-secret-at-least-32-chars-long',
+        refreshTokenSecret: 'test-refresh-secret-at-least-32-chars-long',
+        jwtIssuer: 'ghost-protocol-api-test',
+        jwtAudience: 'ghost-protocol-clients-test',
+        authRateLimitWindowMs: 60000,
+        authRateLimitMax: 100,
+        trustProxy: false,
+        jsonBodyLimitBytes: 16384
+      },
       { checkDb: async () => false }
     )
   );
@@ -184,7 +223,9 @@ test('assertProductionConfig requires DATABASE_URL and rejects client-exposed DB
           loadConfig({
             NODE_ENV: 'production',
             PORT: '3000',
-            DATABASE_URL: 'postgresql://ghost_app:CHANGE_ME@db.example:5432/ghost'
+            DATABASE_URL: 'postgresql://ghost_app:CHANGE_ME@db.example:5432/ghost',
+            ACCESS_TOKEN_SECRET: 'test-access-secret-at-least-32-chars-long',
+            REFRESH_TOKEN_SECRET: 'test-refresh-secret-at-least-32-chars-long'
           })
         ),
       (error) => error instanceof ConfigError && /Client-exposed/.test(error.message)

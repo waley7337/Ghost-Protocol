@@ -1,43 +1,35 @@
 # Ghost Protocol Backend
 
-Phase 2 provides the PostgreSQL data foundation, health endpoints, and Railway-oriented process readiness (not deployed).
+Phase 3 provides PostgreSQL persistence plus email/password authentication foundations.
 
-## What is implemented
+## Implemented
 
-- `pg` connection pool (server-side only)
-- SQL migrations for `users`, `sessions`, `profiles`, `user_progress`
-- Migration runner: `npm run db:migrate` / `npm run db:status`
-- `GET /health`
-- `GET /health/db` (returns only `{ "status": "ok" }` or `{ "status": "unavailable" }`)
-- Listen on `PORT`, bind `0.0.0.0`, production config validation, graceful pool shutdown
+- `pg` pool + SQL migrations (`users`, `sessions`, `profiles`, `user_progress`)
+- Auth endpoints:
+  - `POST /auth/register`
+  - `POST /auth/login`
+  - `POST /auth/refresh`
+  - `POST /auth/logout`
+  - `GET /auth/me`
+- Argon2id passwords, JWT access tokens, hashed refresh sessions with rotation
+- `GET /health`, `GET /health/db`
+- Railway-oriented process readiness (`PORT`, production config gate, graceful shutdown)
 
-## What is not implemented
+## Not implemented / not wired
 
-- Authentication / sessions issuance
-- Profile or progress HTTP APIs
-- Wiring from Electron or the web client
-- Actual Railway / Cloudflare / Vercel deployment
+- Electron or web client migration off Supabase
+- Profile/progress HTTP APIs
+- Google OAuth / password reset
+- Railway / Cloudflare / Vercel deployment
 
 ## Local setup
 
-1. Create a PostgreSQL database.
-2. Prefer a least-privilege application role (see `docs/SECURITY.md`).
-3. Copy `.env.example` to `.env` and set `DATABASE_URL` (never commit `.env`).
-4. Run migrations:
-
 ```bash
 cd backend
+cp .env.example .env
+# set DATABASE_URL, ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET
 npm run db:migrate
-npm run db:status
 npm start
 ```
 
-## Railway production start command
-
-```bash
-npm start
-```
-
-Railway must inject `PORT` and `DATABASE_URL` (prefer private Postgres URL via service variable reference). Set service **Root Directory** to `backend`. Details: `docs/RAILWAY.md`.
-
-Root Electron `npm start` is unchanged and does not use this backend yet.
+Root Electron `npm start` is unchanged and still uses the legacy Supabase client.
