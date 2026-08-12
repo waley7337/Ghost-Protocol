@@ -153,15 +153,61 @@ test('sanitizeDbError never returns connection strings or credentials', () => {
   assert.equal(clean.code, 'ECONNREFUSED');
 });
 
-test('buildPoolConfig enables TLS for production by default', () => {
+test('buildPoolConfig enables TLS for production by default with cert validation on', () => {
   const config = loadConfig({
     NODE_ENV: 'production',
-    DATABASE_URL: 'postgresql://ghost_app:CHANGE_ME@127.0.0.1:5432/ghost_protocol'
+    PORT: '8080',
+    DATABASE_URL: 'postgresql://ghost_app:CHANGE_ME@db.example:5432/ghost_protocol'
   });
   assert.equal(shouldUseSsl(config), true);
   const poolConfig = buildPoolConfig(config);
   assert.equal(typeof poolConfig.ssl, 'object');
-  assert.equal(poolConfig.connectionString.includes('CHANGE_ME'), true);
+  assert.equal(poolConfig.ssl.rejectUnauthorized, true);
+});
+
+test('assertProductionConfig requires DATABASE_URL and rejects client-exposed DB vars', () => {
+  const { assertProductionConfig } = require('../src/config');
+  assert.throws(
+    () =>
+      assertProductionConfig(
+        loadConfig({ NODE_ENV: 'production', PORT: '3000' })
+      ),
+    (error) => error instanceof ConfigError
+  );
+
+  const previousVite = process.env.VITE_DATABASE_URL;
+  process.env.VITE_DATABASE_URL = 'postgresql://should-not-exist';
+  try {
+    assert.throws(
+      () =>
+        assertProductionConfig(
+          loadConfig({
+            NODE_ENV: 'production',
+            PORT: '3000',
+            DATABASE_URL: 'postgresql://ghost_app:CHANGE_ME@db.example:5432/ghost'
+          })
+        ),
+      (error) => error instanceof ConfigError && /Client-exposed/.test(error.message)
+    );
+  } finally {
+    if (previousVite === undefined) delete process.env.VITE_DATABASE_URL;
+    else process.env.VITE_DATABASE_URL = previousVite;
+  }
+});
+
+test('production loadConfig requires PORT from the environment', () => {
+  assert.throws(
+    () => loadConfig({ NODE_ENV: 'production', DATABASE_URL: 'postgresql://u:p@h:5432/db' }),
+    (error) => error instanceof ConfigError && /PORT/.test(error.message)
+  );
+
+  const config = loadConfig({
+    NODE_ENV: 'production',
+    PORT: '4567',
+    DATABASE_URL: 'postgresql://u:p@h:5432/db'
+  });
+  assert.equal(config.port, 4567);
+  assert.equal(config.host, '0.0.0.0');
 });
 
 test('query helper requires parameterized values as an array', async () => {

@@ -71,13 +71,16 @@ The retained SQL migration defines row-level security policies intended to restr
 
 - Official `pg` driver only (no ORM)
 - `DATABASE_URL` read from server environment/config only
-- Connection pool with production-aware TLS options
+- Connection pool with explicit TLS controls (production defaults to TLS; certificate validation remains enabled by default)
+- Optional `DATABASE_SSL_CA` for trusting a provided CA without disabling validation
 - Parameterized query helper; database errors sanitized (no connection strings/credentials in thrown API-facing errors)
 - SQL migrations for `users`, `sessions`, `profiles`, `user_progress` with foreign keys and ownership cascade
 - `sessions.refresh_token_hash` column prepared for hashed session credentials (plaintext refresh tokens are not stored by schema design)
 - `GET /health/db` returns only `{ "status": "ok" }` or `{ "status": "unavailable" }`
+- Railway process readiness: listen on injected `PORT`, bind `0.0.0.0`, fail closed on invalid production config, close pool on shutdown
 
-**Non-claim:** Creating a `sessions` table does **not** mean session authentication, rotation, or revocation logic is implemented.
+**Non-claim:** Creating a `sessions` table does **not** mean session authentication, rotation, or revocation logic is implemented.  
+**Non-claim:** Railway readiness docs/code do **not** mean a Railway project has been deployed.
 
 ### PostgreSQL privilege model (documented intent)
 

@@ -1,11 +1,18 @@
 'use strict';
 
+const fs = require('node:fs');
 const { Pool } = require('pg');
 const { ConfigError, requireDatabaseUrl } = require('../config');
 
 /**
  * PostgreSQL access layer.
  * Clients (browser/Electron) must never import this module or receive DATABASE_URL.
+ *
+ * Railway note:
+ * - Prefer Railway's private DATABASE_URL between backend and Postgres services.
+ * - TLS behavior is controlled explicitly (see shouldUseSsl / buildSslConfig).
+ * - Certificate validation stays enabled unless DATABASE_SSL_REJECT_UNAUTHORIZED=false
+ *   is set deliberately after documenting residual risk.
  */
 
 class DatabaseError extends Error {
@@ -18,11 +25,47 @@ class DatabaseError extends Error {
 
 let sharedPool = null;
 
+function readSslModeFromUrl(connectionString) {
+  try {
+    const url = new URL(connectionString);
+    return (url.searchParams.get('sslmode') || '').toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
 function shouldUseSsl(config) {
   const mode = (config.databaseSsl || '').toLowerCase();
   if (mode === 'disable' || mode === 'false') return false;
   if (mode === 'require' || mode === 'true') return true;
+
+  const urlMode = config.databaseUrl ? readSslModeFromUrl(config.databaseUrl) : '';
+  if (urlMode === 'disable') return false;
+  if (urlMode === 'require' || urlMode === 'verify-ca' || urlMode === 'verify-full') {
+    return true;
+  }
+
+  // Production default: use TLS (Railway Postgres expects encrypted connections).
+  // Development default without explicit config: no TLS (typical local Postgres).
   return config.nodeEnv === 'production';
+}
+
+function buildSslConfig(config) {
+  const ssl = {
+    rejectUnauthorized: config.databaseSslRejectUnauthorized !== false
+  };
+
+  if (config.databaseSslCaPath) {
+    try {
+      ssl.ca = fs.readFileSync(config.databaseSslCaPath, 'utf8');
+    } catch {
+      throw new ConfigError(
+        'DATABASE_SSL_CA file could not be read (path invalid or inaccessible)'
+      );
+    }
+  }
+
+  return ssl;
 }
 
 function buildPoolConfig(config) {
@@ -35,9 +78,7 @@ function buildPoolConfig(config) {
   };
 
   if (shouldUseSsl(config)) {
-    poolConfig.ssl = {
-      rejectUnauthorized: config.databaseSslRejectUnauthorized !== false
-    };
+    poolConfig.ssl = buildSslConfig(config);
   }
 
   return poolConfig;
@@ -114,6 +155,7 @@ async function checkConnection(pool) {
 module.exports = {
   DatabaseError,
   buildPoolConfig,
+  buildSslConfig,
   createPool,
   getPool,
   resetPoolForTests,
@@ -122,5 +164,6 @@ module.exports = {
   query,
   withClient,
   checkConnection,
-  shouldUseSsl
+  shouldUseSsl,
+  readSslModeFromUrl
 };

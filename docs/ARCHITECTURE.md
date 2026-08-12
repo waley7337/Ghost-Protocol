@@ -40,8 +40,11 @@ The `backend/` package now includes:
 - Deterministic SQL migrations for `users`, `sessions`, `profiles`, `user_progress`
 - Migration runner (`npm run db:migrate`, `npm run db:status`)
 - `GET /health` and `GET /health/db` (db health returns only ok/unavailable)
+- Railway-oriented process readiness: `PORT`/`HOST` bind, production config gate, graceful pool shutdown
 
-There is still **no** authentication API, **no** profile/progress API, **no** Vercel/Cloudflare production wiring, and **no** Electron/web client connection to this backend.
+There is still **no** authentication API, **no** profile/progress API, **no** live Railway/Vercel/Cloudflare deployment, and **no** Electron/web client connection to this backend.
+
+Production hosting intent (not deployed yet): **Railway** for Backend API + PostgreSQL. See `docs/RAILWAY.md`.
 
 ---
 
@@ -65,7 +68,7 @@ There is still **no** authentication API, **no** profile/progress API, **no** Ve
               │                            │
               ▼                            ▼
       ┌─────────────────┐          ┌─────────────────┐
-      │     VERCEL      │          │   BACKEND API   │
+      │     VERCEL      │          │ RAILWAY BACKEND │
       │                 │          │                 │
       │ Ghost Web App   │ ─HTTPS─► │ Authentication  │
       │ Frontend        │          │ Authorization   │
@@ -74,10 +77,12 @@ There is still **no** authentication API, **no** profile/progress API, **no** Ve
                                    │ Security headers│
                                    │ Audit logging   │
                                    └────────┬────────┘
-                                            │
+                                            │ DATABASE_URL
+                                            │ (server-side only)
                                             ▼
                                    ┌─────────────────┐
-                                   │   POSTGRESQL    │
+                                   │ RAILWAY         │
+                                   │ POSTGRESQL      │
                                    │                 │
                                    │ Users           │
                                    │ Sessions        │
@@ -93,7 +98,7 @@ There is still **no** authentication API, **no** profile/progress API, **no** Ve
                  │
                  │ HTTPS
                  ▼
-          Cloudflare → Backend API
+          Cloudflare → Railway Backend API
 ```
 
 ### Critical trust path
@@ -105,14 +110,14 @@ Browser/Electron
         |
    Cloudflare
         |
-    Backend API
+ Railway Backend API
         |
-   PostgreSQL
+ Railway PostgreSQL
 ```
 
 **Neither the browser nor Electron may communicate directly with PostgreSQL.**
 
-Database credentials and server secrets must never be shipped to either client.
+Database credentials and server secrets must never be shipped to either client. On Railway, `DATABASE_URL` stays on the backend service only.
 
 ---
 
