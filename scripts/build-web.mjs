@@ -33,6 +33,7 @@ function assertNoServerSecrets(text, label) {
     /DATABASE_URL\s*=\s*postgresql:\/\/[^:]+:[^@\s]+@/i,
     /ACCESS_TOKEN_SECRET\s*=\s*(?!replace-with)[A-Za-z0-9+/=_-]{32,}/,
     /REFRESH_TOKEN_SECRET\s*=\s*(?!replace-with)[A-Za-z0-9+/=_-]{32,}/,
+    /GOOGLE_CLIENT_SECRET\s*=\s*\S+/,
     /BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY/
   ];
   for (const pattern of forbidden) {
@@ -42,95 +43,188 @@ function assertNoServerSecrets(text, label) {
   }
 }
 
-// 1) Rebuild auth bundle from src/
-const bundle = spawnSync('npm', ['run', 'auth:bundle'], {
-  cwd: root,
-  stdio: 'inherit',
-  shell: process.platform === 'win32'
-});
-if (bundle.status !== 0) {
-  process.exit(bundle.status || 1);
+function isLoopbackHostname(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
 }
 
-// 2) Clean output
-fs.rmSync(outDir, { recursive: true, force: true });
-fs.mkdirSync(outDir, { recursive: true });
-
-// 3) Copy SPA assets
-copyFile(path.join(root, 'index.html'), path.join(outDir, 'index.html'));
-copyDir(path.join(root, 'assets'), path.join(outDir, 'assets'));
-
-// 4) Public API URL only (Vercel env: GHOST_API_BASE_URL)
-const apiBase =
-  (process.env.GHOST_API_BASE_URL || process.env.API_PUBLIC_URL || '').trim().replace(/\/+$/, '') ||
-  'http://127.0.0.1:3000';
-
-if (/^\s*$/.test(apiBase)) {
-  throw new Error('GHOST_API_BASE_URL must be a non-empty public API origin');
+function isProductionWebBuild(env = process.env) {
+  return env.VERCEL === '1' || env.GHOST_WEB_PRODUCTION === '1';
 }
 
-let parsed;
-try {
-  parsed = new URL(apiBase);
-} catch {
-  throw new Error(`Invalid GHOST_API_BASE_URL: ${apiBase}`);
+/**
+ * Resolve public API origin for the web build.
+ * Local/dev builds may fall back to loopback.
+ * Production/Vercel builds MUST supply HTTPS and must never use localhost.
+ */
+export function resolveWebBuildApiBaseUrl(env = process.env) {
+  const raw = (env.GHOST_API_BASE_URL || env.API_PUBLIC_URL || '').trim().replace(/\/+$/, '');
+  const production = isProductionWebBuild(env);
+
+  if (!raw) {
+    if (production) {
+      throw new Error(
+        'Production web builds require GHOST_API_BASE_URL (HTTPS API origin). No localhost fallback.'
+      );
+    }
+    return 'http://127.0.0.1:3000';
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`Invalid GHOST_API_BASE_URL: ${raw}`);
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`GHOST_API_BASE_URL must be http(s); got ${parsed.protocol}`);
+  }
+
+  if (production) {
+    if (isLoopbackHostname(parsed.hostname)) {
+      throw new Error(
+        'Production web builds must not use localhost / 127.0.0.1 / ::1 for GHOST_API_BASE_URL'
+      );
+    }
+    if (parsed.protocol !== 'https:') {
+      throw new Error('Production web builds require HTTPS GHOST_API_BASE_URL');
+    }
+  }
+
+  return raw;
 }
 
-const isLoopback =
-  parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1';
-if (process.env.VERCEL === '1' || process.env.GHOST_WEB_PRODUCTION === '1') {
-  if (parsed.protocol !== 'https:' && !isLoopback) {
-    throw new Error('Production web builds require HTTPS GHOST_API_BASE_URL (or loopback for local verify)');
+function assertNoLocalhostApiConfig(text, label, { allowLoopback }) {
+  if (allowLoopback) return;
+  if (/https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):3000/i.test(text)) {
+    throw new Error(`Refusing to ship localhost API config in production artifact: ${label}`);
+  }
+  if (/GHOST_API_BASE_URL\s*=\s*['"]https?:\/\/(?:127\.0\.0\.1|localhost)/i.test(text)) {
+    throw new Error(`Refusing to ship localhost GHOST_API_BASE_URL in ${label}`);
   }
 }
 
-const configJs = `/**
+function main() {
+  // 1) Rebuild Electron/local auth bundle (keeps loopback fallback for desktop)
+  const bundle = spawnSync('npm', ['run', 'auth:bundle'], {
+    cwd: root,
+    stdio: 'inherit',
+    shell: process.platform === 'win32'
+  });
+  if (bundle.status !== 0) {
+    process.exit(bundle.status || 1);
+  }
+
+  // 2) Clean output
+  fs.rmSync(outDir, { recursive: true, force: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  // 3) Copy SPA assets
+  copyFile(path.join(root, 'index.html'), path.join(outDir, 'index.html'));
+  copyDir(path.join(root, 'assets'), path.join(outDir, 'assets'));
+
+  // 4) Public API URL only (Vercel env: GHOST_API_BASE_URL)
+  const apiBase = resolveWebBuildApiBaseUrl(process.env);
+  const production = isProductionWebBuild(process.env);
+  const parsed = new URL(apiBase);
+  const isLoopback = isLoopbackHostname(parsed.hostname);
+
+  // 4b) Web-specific auth bundle: empty API fallback so production never embeds localhost
+  const webBundle = spawnSync(
+    'npx',
+    [
+      'esbuild',
+      'src/auth.js',
+      '--bundle',
+      '--minify',
+      '--format=iife',
+      `--outfile=${path.join(outDir, 'assets', 'auth.bundle.js')}`,
+      '--define:__GHOST_WEB_API_FALLBACK__=""'
+    ],
+    {
+      cwd: root,
+      stdio: 'inherit',
+      shell: process.platform === 'win32'
+    }
+  );
+  if (webBundle.status !== 0) {
+    process.exit(webBundle.status || 1);
+  }
+
+  const configJs = `/**
  * Generated by scripts/build-web.mjs — public client config only.
- * Do not add DATABASE_URL or token secrets here.
+ * Do not add database URLs, OAuth client secrets, or token secrets here.
  */
 window.GHOST_API_BASE_URL = ${JSON.stringify(apiBase)};
 `;
-fs.writeFileSync(path.join(outDir, 'assets', 'config.js'), configJs, 'utf8');
+  fs.writeFileSync(path.join(outDir, 'assets', 'config.js'), configJs, 'utf8');
 
-// 5) Lightweight CSP meta for hosted web (Electron still applies CSP in main)
-const connectSrc = ["'self'", apiBase];
-if (isLoopback) {
-  connectSrc.push('http://127.0.0.1:3000', 'http://localhost:3000');
-}
-const csp = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data: https:",
-  `connect-src ${connectSrc.join(' ')}`,
-  "object-src 'none'",
-  "base-uri 'self'",
-  "frame-ancestors 'none'"
-].join('; ');
-
-const htmlPath = path.join(outDir, 'index.html');
-let html = fs.readFileSync(htmlPath, 'utf8');
-if (!/<meta\s+http-equiv=["']Content-Security-Policy["']/i.test(html)) {
-  html = html.replace(
-    /<head([^>]*)>/i,
-    `<head$1>\n<meta http-equiv="Content-Security-Policy" content="${csp.replace(/"/g, '&quot;')}">`
-  );
-  fs.writeFileSync(htmlPath, html, 'utf8');
-}
-
-// 6) Bundle secret scan on output
-for (const rel of ['assets/auth.bundle.js', 'assets/config.js', 'index.html']) {
-  const full = path.join(outDir, rel);
-  assertNoServerSecrets(fs.readFileSync(full, 'utf8'), rel);
-  const text = fs.readFileSync(full, 'utf8');
-  if (
-    /@supabase\/supabase-js|lkbdybejiiijocnhwmvm\.supabase\.co/i.test(text) ||
-    text.includes('sb_' + 'publishable_')
-  ) {
-    throw new Error(`Supabase runtime residue found in ${rel}`);
+  // 5) Lightweight CSP meta for hosted web (Electron still applies CSP in main)
+  // Redirect-based Google OAuth does not require accounts.google.com in connect-src.
+  const connectSrc = ["'self'", apiBase];
+  if (isLoopback) {
+    connectSrc.push('http://127.0.0.1:3000', 'http://localhost:3000');
   }
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: https:",
+    `connect-src ${connectSrc.join(' ')}`,
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'"
+  ].join('; ');
+
+  const htmlPath = path.join(outDir, 'index.html');
+  let html = fs.readFileSync(htmlPath, 'utf8');
+  if (!/<meta\s+http-equiv=["']Content-Security-Policy["']/i.test(html)) {
+    html = html.replace(
+      /<head([^>]*)>/i,
+      `<head$1>\n<meta http-equiv="Content-Security-Policy" content="${csp.replace(/"/g, '&quot;')}">`
+    );
+  }
+  // Ensure config.js remains before auth.bundle.js after any transforms
+  const configIdx = html.indexOf('assets/config.js');
+  const bundleIdx = html.indexOf('assets/auth.bundle.js');
+  if (configIdx < 0 || bundleIdx < 0 || bundleIdx < configIdx) {
+    throw new Error('index.html must load assets/config.js before assets/auth.bundle.js');
+  }
+  fs.writeFileSync(htmlPath, html, 'utf8');
+
+  // 6) Bundle secret + localhost API scan on output
+  for (const rel of ['assets/auth.bundle.js', 'assets/config.js', 'index.html']) {
+    const full = path.join(outDir, rel);
+    const text = fs.readFileSync(full, 'utf8');
+    assertNoServerSecrets(text, rel);
+    if (rel !== 'index.html') {
+      assertNoLocalhostApiConfig(text, rel, { allowLoopback: !production && isLoopback });
+    }
+    if (
+      /@supabase\/supabase-js|lkbdybejiiijocnhwmvm\.supabase\.co/i.test(text) ||
+      text.includes('sb_' + 'publishable_')
+    ) {
+      throw new Error(`Supabase runtime residue found in ${rel}`);
+    }
+  }
+
+  if (production && !textIncludesApiOrigin(fs.readFileSync(path.join(outDir, 'assets', 'config.js'), 'utf8'), apiBase)) {
+    throw new Error('Production config.js missing resolved API origin');
+  }
+  if (production && !html.includes(apiBase)) {
+    throw new Error('Production CSP/connect-src missing resolved API origin');
+  }
+
+  process.stdout.write(`Web build ready: ${outDir}\n`);
+  process.stdout.write(`GHOST_API_BASE_URL=${apiBase}\n`);
 }
 
-process.stdout.write(`Web build ready: ${outDir}\n`);
-process.stdout.write(`GHOST_API_BASE_URL=${apiBase}\n`);
+function textIncludesApiOrigin(text, apiBase) {
+  return text.includes(apiBase);
+}
+
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isDirectRun) {
+  main();
+}

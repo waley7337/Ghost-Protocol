@@ -62,7 +62,8 @@ function createRequestListener(config, dependencies = {}) {
     config,
     getPool: poolFactory,
     requireAuth,
-    rateLimitAuth
+    rateLimitAuth,
+    fetchImpl: dependencies.fetchImpl
   });
 
   const me = createMeHandlers({
@@ -123,6 +124,18 @@ function createRequestListener(config, dependencies = {}) {
       }
       if (req.method === 'GET' && path === '/auth/me') {
         await auth.me(req, res);
+        return;
+      }
+      if (req.method === 'GET' && path === '/auth/google') {
+        await auth.googleStart(req, res);
+        return;
+      }
+      if (req.method === 'GET' && path === '/auth/google/callback') {
+        await auth.googleCallback(req, res);
+        return;
+      }
+      if (req.method === 'POST' && path === '/auth/google/exchange') {
+        await auth.googleExchange(req, res);
         return;
       }
 

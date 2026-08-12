@@ -3,7 +3,7 @@ import { api, ApiError } from './api.js';
 const isElectron = Boolean(window.ghostDesktop);
 const REDIRECT_URL = isElectron
   ? 'ghost-protocol://auth/callback'
-  : `${window.location.origin}${window.location.pathname}`;
+  : `${window.location.origin}${window.location.pathname || '/'}`;
 
 let profile = null;
 let syncTimer;
@@ -29,6 +29,21 @@ function friendly(error) {
     no_refresh_token: 'Session expired. Please sign in again.',
     unauthorized: 'Session expired. Please sign in again.',
     not_authenticated: 'Please sign in to continue.',
+    google_not_configured: 'Google sign-in is not configured on the server.',
+    google_cancelled: 'Google sign-in was cancelled.',
+    google_rejected: 'Google sign-in was rejected.',
+    google_email_unverified: 'Your Google email must be verified to continue.',
+    google_email_missing: 'Google did not provide an email address.',
+    google_email_conflict: 'This Google email conflicts with an existing account.',
+    google_account_mismatch: 'This email is linked to a different Google account.',
+    google_account_conflict: 'Unable to create an account for this Google identity.',
+    google_already_linked: 'This Google account is already linked.',
+    invalid_oauth_state: 'Google sign-in expired. Please try again.',
+    invalid_exchange_code: 'Google sign-in expired. Please try again.',
+    google_token_exchange_failed: 'Google authorization failed. Please try again.',
+    google_identity_invalid: 'Google identity could not be verified.',
+    invalid_return_to: 'Google sign-in return URL is not allowed.',
+    api_base_unconfigured: 'API is not configured. Please reload or contact support.',
     SESSION_UNAVAILABLE: 'Secure session storage is unavailable. Please sign in again.',
     SESSION_STORAGE_FAILED: 'Unable to store your session securely. Please try again.'
   };
@@ -56,6 +71,32 @@ function disableSync() {
 
 function enableSync() {
   syncEnabled = true;
+}
+
+function clearGoogleQueryParams() {
+  try {
+    const url = new URL(window.location.href);
+    let changed = false;
+    for (const key of [
+      'google_exchange',
+      'google_error',
+      'google_error_message',
+      'code',
+      'state',
+      'error',
+      'error_description'
+    ]) {
+      if (url.searchParams.has(key)) {
+        url.searchParams.delete(key);
+        changed = true;
+      }
+    }
+    if (changed) {
+      window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+    }
+  } catch {
+    // ignore history cleanup failures
+  }
 }
 
 async function ensureProfileForUser(user) {
@@ -153,15 +194,82 @@ async function unlockAuthenticatedSession({ startApp = false } = {}) {
   }
 }
 
-// Keep deep-link architecture for a future OAuth phase; do not call Supabase.
+async function completeGoogleExchange(exchangeCode, { startApp = true } = {}) {
+  setBusy(true);
+  message();
+  disableSync();
+  try {
+    await api.exchangeGoogle(exchangeCode);
+    clearGoogleQueryParams();
+    await unlockAuthenticatedSession({ startApp });
+  } catch (error) {
+    disableSync();
+    clearGoogleQueryParams();
+    showGate(true);
+    message(friendly(error), true);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function readGoogleCallbackFromLocation(search = window.location.search) {
+  const params = new URLSearchParams(search || '');
+  return {
+    exchangeCode: params.get('google_exchange'),
+    errorCode: params.get('google_error'),
+    errorMessage: params.get('google_error_message')
+  };
+}
+
+async function handleGoogleCallbackPayload({ exchangeCode, errorCode, errorMessage, startApp = true }) {
+  if (errorCode) {
+    clearGoogleQueryParams();
+    showGate(true);
+    message(friendly({ code: errorCode, message: errorMessage }), true);
+    return true;
+  }
+  if (exchangeCode) {
+    await completeGoogleExchange(exchangeCode, { startApp });
+    return true;
+  }
+  return false;
+}
+
 if (isElectron && window.ghostDesktop?.onAuthCallback) {
-  window.ghostDesktop.onAuthCallback(async () => {
-    message('Google sign-in is not available yet.', true);
+  window.ghostDesktop.onAuthCallback(async (callbackUrl) => {
+    try {
+      const parsed = new URL(callbackUrl);
+      await handleGoogleCallbackPayload({
+        exchangeCode: parsed.searchParams.get('google_exchange'),
+        errorCode: parsed.searchParams.get('google_error'),
+        errorMessage: parsed.searchParams.get('google_error_message'),
+        startApp: true
+      });
+    } catch {
+      message('Google sign-in callback was invalid.', true);
+    }
   });
 }
 
-$('auth-google').onclick = () => {
-  message('Google sign-in is temporarily unavailable.', true);
+$('auth-google').onclick = async () => {
+  try {
+    setBusy(true);
+    message();
+    if (isElectron && window.ghostDesktop?.beginOAuth) {
+      const url = api.buildGoogleStartUrl({ platform: 'electron' });
+      await window.ghostDesktop.beginOAuth(url);
+      message('Complete Google sign-in in your browser…');
+      return;
+    }
+    const url = api.buildGoogleStartUrl({
+      returnTo: REDIRECT_URL
+    });
+    window.location.assign(url);
+  } catch (error) {
+    message(friendly(error), true);
+  } finally {
+    setBusy(false);
+  }
 };
 
 let signUp = false;
@@ -230,6 +338,12 @@ window.addEventListener('ghost-progress-changed', (event) => {
 async function initializeAuthentication() {
   try {
     disableSync();
+    const callback = readGoogleCallbackFromLocation();
+    if (callback.exchangeCode || callback.errorCode) {
+      await handleGoogleCallbackPayload({ ...callback, startApp: true });
+      return api.isAuthenticated();
+    }
+
     const user = await api.restoreSession();
     if (!user) {
       showGate(true);
@@ -245,8 +359,5 @@ async function initializeAuthentication() {
     return false;
   }
 }
-
-// Preserve protocol constant for future OAuth wiring (unused in Phase 5 email auth).
-void REDIRECT_URL;
 
 window.ghostAuthReady = initializeAuthentication();

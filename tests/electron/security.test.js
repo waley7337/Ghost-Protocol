@@ -205,6 +205,27 @@ test('external URL policy allows https only', () => {
   assert.equal(security.isAllowedExternalHttpsUrl('https://user:pass@example.com'), false);
 });
 
+test('OAuth start URL allowlist is limited to API /auth/google', () => {
+  const api = 'https://ghost-protocol-production-f7ef.up.railway.app';
+  assert.equal(
+    security.isAllowedOAuthStartUrl(`${api}/auth/google?platform=electron`, api),
+    true
+  );
+  assert.equal(
+    security.isAllowedOAuthStartUrl('http://127.0.0.1:3000/auth/google', 'http://127.0.0.1:3000'),
+    true
+  );
+  assert.equal(security.isAllowedOAuthStartUrl(`${api}/auth/login`, api), false);
+  assert.equal(
+    security.isAllowedOAuthStartUrl('https://accounts.google.com/o/oauth2/v2/auth', api),
+    false
+  );
+  assert.equal(
+    security.isAllowedOAuthStartUrl('https://evil.example/auth/google', api),
+    false
+  );
+});
+
 test('malformed ghost-protocol callbacks are rejected', () => {
   assert.equal(security.parseAuthCallbackUrl('ghost-protocol://auth/callback').ok, true);
   assert.equal(security.parseAuthCallbackUrl('ghost-protocol://auth/callback?code=x').ok, true);

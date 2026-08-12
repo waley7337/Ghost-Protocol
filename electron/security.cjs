@@ -103,6 +103,29 @@ function isAllowedExternalHttpsUrl(url) {
 }
 
 /**
+ * OAuth start URLs must be our API /auth/google endpoint (http loopback or https).
+ * Browser then follows redirects to Google; renderer never holds client secrets.
+ */
+function isAllowedOAuthStartUrl(url, apiBaseUrl) {
+  if (typeof url !== 'string' || !url || url.length > 4096) return false;
+  if (typeof apiBaseUrl !== 'string' || !apiBaseUrl) return false;
+  let parsed;
+  let api;
+  try {
+    parsed = new URL(url);
+    api = new URL(apiBaseUrl);
+  } catch {
+    return false;
+  }
+  if (parsed.username || parsed.password) return false;
+  if (parsed.origin !== api.origin) return false;
+  if (parsed.pathname !== '/auth/google') return false;
+  if (parsed.protocol === 'https:') return true;
+  if (parsed.protocol === 'http:' && isLoopbackHostname(parsed.hostname)) return true;
+  return false;
+}
+
+/**
  * Strict validation for dormant OAuth deep links.
  * Accepts only ghost-protocol://auth/callback with optional query.
  * Does NOT imply authentication success.
@@ -385,6 +408,7 @@ module.exports = {
   resolveApiBaseUrlFromEnv,
   buildContentSecurityPolicy,
   isAllowedExternalHttpsUrl,
+  isAllowedOAuthStartUrl,
   parseAuthCallbackUrl,
   isAuthCallback,
   validateRefreshTokenInput,

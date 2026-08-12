@@ -9,6 +9,7 @@ Deterministic SQL migrations applied by `src/db/migrate.js`.
 | `003_create_profiles.sql` | One profile per user |
 | `004_create_user_progress.sql` | One JSONB progress document per user |
 | `005_session_refresh_families.sql` | Refresh-token family / replacement linkage |
+| `006_google_oauth.sql` | Google `google_sub` + one-time OAuth exchange codes |
 
 Tracking table `schema_migrations` is created by the runner.
 

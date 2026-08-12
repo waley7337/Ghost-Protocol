@@ -182,13 +182,14 @@ app.whenReady().then(() => {
     }
   });
 
-  // OAuth remains NOT implemented — keep architecture, deny all launches.
+  // Google OAuth: open only the API /auth/google start URL in the system browser.
   ipcMain.handle('auth:open-oauth', async (event, url) => {
     if (!isTrustedSender(event)) throw new Error('Unauthorized');
-    if (!security.isAllowedExternalHttpsUrl(url)) {
+    if (!security.isAllowedOAuthStartUrl(url, apiBaseUrl)) {
       throw new Error('Blocked untrusted authentication URL');
     }
-    throw new Error('OAuth is not configured');
+    await shell.openExternal(url);
+    return { ok: true };
   });
 
   installContentSecurityPolicy();

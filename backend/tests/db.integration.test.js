@@ -47,12 +47,12 @@ integration('INTEGRATION: schema ownership constraints exist after migrate', asy
        WHERE table_schema = 'public'
          AND table_name = ANY($1::text[])
        ORDER BY table_name`,
-      [['profiles', 'schema_migrations', 'sessions', 'user_progress', 'users']]
+      [['oauth_exchanges', 'profiles', 'schema_migrations', 'sessions', 'user_progress', 'users']]
     );
 
     assert.deepEqual(
       tables.rows.map((row) => row.table_name),
-      ['profiles', 'schema_migrations', 'sessions', 'user_progress', 'users']
+      ['oauth_exchanges', 'profiles', 'schema_migrations', 'sessions', 'user_progress', 'users']
     );
 
     const fks = await query(

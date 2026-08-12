@@ -10,7 +10,9 @@
 
 import { detectAuthStorageMode, detectRuntime } from './platform.js';
 
-const DEFAULT_API_BASE_URL = 'http://127.0.0.1:3000';
+/** Local/Electron default. Production web builds redefine via esbuild to "". */
+const DEFAULT_API_BASE_URL =
+  typeof __GHOST_WEB_API_FALLBACK__ === 'string' ? __GHOST_WEB_API_FALLBACK__ : 'http://127.0.0.1:3000';
 
 export class ApiError extends Error {
   constructor(message, { status = 0, code = 'api_error', details = null } = {}) {
@@ -35,7 +37,13 @@ export function resolveApiBaseUrl({
       return value.trim().replace(/\/+$/, '');
     }
   }
-  return fallback;
+  if (typeof fallback === 'string' && fallback.trim()) {
+    return fallback.trim().replace(/\/+$/, '');
+  }
+  throw new ApiError('API base URL is not configured', {
+    status: 0,
+    code: 'api_base_unconfigured'
+  });
 }
 
 /**
@@ -266,6 +274,33 @@ export function createApiClient(options = {}) {
     return json;
   }
 
+  /**
+   * Complete Google OAuth after backend redirects back with a one-time exchange code.
+   * Same session model as email/password login.
+   */
+  async function exchangeGoogle(exchangeCode) {
+    const json = await request('/auth/google/exchange', {
+      method: 'POST',
+      body: { exchangeCode },
+      auth: false,
+      retryOnUnauthorized: false
+    });
+    await setSession({
+      accessToken: json.accessToken,
+      refreshToken: json.refreshToken,
+      user: json.user
+    });
+    return json;
+  }
+
+  function buildGoogleStartUrl({ platform, returnTo } = {}) {
+    const base = getBaseUrl();
+    const url = new URL(`${base}/auth/google`);
+    if (platform) url.searchParams.set('platform', platform);
+    if (returnTo) url.searchParams.set('return_to', returnTo);
+    return url.toString();
+  }
+
   async function logout() {
     const token = refreshToken || (await hydrateRefreshFromStorage());
     let serverOk = true;
@@ -352,6 +387,8 @@ export function createApiClient(options = {}) {
     request,
     register,
     login,
+    exchangeGoogle,
+    buildGoogleStartUrl,
     logout,
     me,
     getProfile,

@@ -37,6 +37,15 @@ function loadConfig(env = process.env) {
   const isProduction = nodeEnv === 'production';
   const databaseUrl = env.DATABASE_URL ? String(env.DATABASE_URL).trim() : null;
 
+  const apiPublicUrl = env.API_PUBLIC_URL ? String(env.API_PUBLIC_URL).trim().replace(/\/+$/, '') : null;
+  const googleClientId = env.GOOGLE_CLIENT_ID ? String(env.GOOGLE_CLIENT_ID).trim() : null;
+  const googleClientSecret = env.GOOGLE_CLIENT_SECRET ? String(env.GOOGLE_CLIENT_SECRET).trim() : null;
+  const googleRedirectUri = env.GOOGLE_REDIRECT_URI
+    ? String(env.GOOGLE_REDIRECT_URI).trim().replace(/\/+$/, '')
+    : apiPublicUrl
+      ? `${apiPublicUrl}/auth/google/callback`
+      : null;
+
   return Object.freeze({
     nodeEnv,
     isProduction,
@@ -44,7 +53,10 @@ function loadConfig(env = process.env) {
     host: env.HOST || '0.0.0.0',
     databaseUrl: databaseUrl || null,
     frontendUrl: env.FRONTEND_URL || null,
-    apiPublicUrl: env.API_PUBLIC_URL || null,
+    apiPublicUrl,
+    googleClientId,
+    googleClientSecret,
+    googleRedirectUri,
     databaseSsl: env.DATABASE_SSL || null,
     databaseSslCaPath: env.DATABASE_SSL_CA || null,
     databaseSslRejectUnauthorized: env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false',
@@ -60,6 +72,15 @@ function loadConfig(env = process.env) {
     jsonBodyLimitBytes: parsePositiveInt(env.JSON_BODY_LIMIT_BYTES, 16 * 1024),
     progressBodyLimitBytes: parsePositiveInt(env.PROGRESS_BODY_LIMIT_BYTES, 65_536)
   });
+}
+
+function isGoogleOAuthConfigured(config) {
+  return Boolean(
+    config?.googleClientId &&
+      config?.googleClientSecret &&
+      config?.googleRedirectUri &&
+      config?.apiPublicUrl
+  );
 }
 
 function requireDatabaseUrl(config) {
@@ -110,5 +131,6 @@ module.exports = {
   requireDatabaseUrl,
   requireAuthSecrets,
   assertProductionConfig,
+  isGoogleOAuthConfigured,
   parsePort
 };

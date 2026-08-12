@@ -1,0 +1,570 @@
+'use strict';
+
+/**
+ * Google OAuth (authorization code) — server-side only.
+ * Secrets never leave the API. Clients receive the same JWT session bundle as email auth.
+ */
+
+const crypto = require('node:crypto');
+const { SignJWT, jwtVerify } = require('jose');
+const { query, DatabaseError } = require('../db');
+const { AppError } = require('../errors');
+const { isGoogleOAuthConfigured } = require('../config');
+const { parseAllowedOrigins } = require('../middleware/cors');
+const { createSession } = require('./sessions');
+const { normalizeEmail, publicUser } = require('./users');
+
+const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const GOOGLE_ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
+const STATE_TTL_SECONDS = 600;
+const EXCHANGE_TTL_SECONDS = 120;
+const ELECTRON_RETURN = 'ghost-protocol://auth/callback';
+
+function requireGoogleConfig(config) {
+  if (!isGoogleOAuthConfigured(config)) {
+    throw new AppError('Google sign-in is not configured', {
+      status: 503,
+      code: 'google_not_configured'
+    });
+  }
+}
+
+function stateSecretKey(config) {
+  return crypto.createHash('sha256').update(`google-oauth-state:${config.accessTokenSecret}`).digest();
+}
+
+async function signOAuthState(config, payload) {
+  return new SignJWT(payload)
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setIssuedAt()
+    .setExpirationTime(`${STATE_TTL_SECONDS}s`)
+    .setIssuer(config.jwtIssuer)
+    .setAudience('ghost-protocol-google-oauth')
+    .sign(stateSecretKey(config));
+}
+
+async function verifyOAuthState(config, state) {
+  if (typeof state !== 'string' || !state) {
+    throw new AppError('Invalid OAuth state', { status: 400, code: 'invalid_oauth_state' });
+  }
+  try {
+    const { payload } = await jwtVerify(state, stateSecretKey(config), {
+      issuer: config.jwtIssuer,
+      audience: 'ghost-protocol-google-oauth',
+      algorithms: ['HS256']
+    });
+    if (payload.typ !== 'google_oauth_state' || typeof payload.returnTo !== 'string') {
+      throw new AppError('Invalid OAuth state', { status: 400, code: 'invalid_oauth_state' });
+    }
+    return payload;
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError('Invalid or expired OAuth state', {
+      status: 400,
+      code: 'invalid_oauth_state'
+    });
+  }
+}
+
+function hashExchangeCode(code) {
+  return crypto.createHash('sha256').update(code, 'utf8').digest('hex');
+}
+
+function resolveReturnTo(config, { returnTo, platform } = {}) {
+  if (platform === 'electron') {
+    return ELECTRON_RETURN;
+  }
+
+  const allowed = parseAllowedOrigins(config);
+  const candidates = [];
+  if (typeof returnTo === 'string' && returnTo.trim()) {
+    candidates.push(returnTo.trim());
+  }
+  if (typeof config.frontendUrl === 'string' && config.frontendUrl.trim()) {
+    const first = config.frontendUrl.split(',')[0].trim().replace(/\/+$/, '');
+    if (first) candidates.push(first + '/');
+  }
+
+  for (const candidate of candidates) {
+    let parsed;
+    try {
+      parsed = new URL(candidate);
+    } catch {
+      continue;
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
+    if (parsed.username || parsed.password) continue;
+    const origin = parsed.origin;
+    if (!allowed.has(origin)) continue;
+    // Keep path; drop hash/search from attacker-controlled return_to
+    const path = parsed.pathname || '/';
+    return `${origin}${path === '/' ? '/' : path}`;
+  }
+
+  throw new AppError('Invalid return URL for Google sign-in', {
+    status: 400,
+    code: 'invalid_return_to'
+  });
+}
+
+function buildGoogleAuthorizeUrl(config, state) {
+  const params = new URLSearchParams({
+    client_id: config.googleClientId,
+    redirect_uri: config.googleRedirectUri,
+    response_type: 'code',
+    scope: 'openid email profile',
+    state,
+    access_type: 'online',
+    include_granted_scopes: 'true',
+    prompt: 'select_account'
+  });
+  return `${GOOGLE_AUTH_URL}?${params.toString()}`;
+}
+
+async function startGoogleOAuth(config, { returnTo, platform } = {}) {
+  requireGoogleConfig(config);
+  const resolvedReturnTo = resolveReturnTo(config, { returnTo, platform });
+  const nonce = crypto.randomBytes(24).toString('base64url');
+  const state = await signOAuthState(config, {
+    typ: 'google_oauth_state',
+    nonce,
+    returnTo: resolvedReturnTo,
+    platform: platform === 'electron' ? 'electron' : 'web'
+  });
+  return {
+    url: buildGoogleAuthorizeUrl(config, state),
+    returnTo: resolvedReturnTo
+  };
+}
+
+function decodeIdTokenPayload(idToken) {
+  if (typeof idToken !== 'string' || !idToken) {
+    throw new AppError('Google identity token missing', {
+      status: 400,
+      code: 'google_identity_invalid'
+    });
+  }
+  const parts = idToken.split('.');
+  if (parts.length !== 3) {
+    throw new AppError('Google identity token invalid', {
+      status: 400,
+      code: 'google_identity_invalid'
+    });
+  }
+  try {
+    const json = Buffer.from(parts[1], 'base64url').toString('utf8');
+    return JSON.parse(json);
+  } catch {
+    throw new AppError('Google identity token invalid', {
+      status: 400,
+      code: 'google_identity_invalid'
+    });
+  }
+}
+
+function assertGoogleIdentity(config, claims) {
+  if (!claims || typeof claims !== 'object') {
+    throw new AppError('Google identity token invalid', {
+      status: 400,
+      code: 'google_identity_invalid'
+    });
+  }
+  if (!GOOGLE_ISSUERS.has(claims.iss)) {
+    throw new AppError('Google identity issuer invalid', {
+      status: 400,
+      code: 'google_identity_invalid'
+    });
+  }
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!audiences.includes(config.googleClientId)) {
+    throw new AppError('Google identity audience invalid', {
+      status: 400,
+      code: 'google_identity_invalid'
+    });
+  }
+  if (typeof claims.exp === 'number' && claims.exp * 1000 <= Date.now()) {
+    throw new AppError('Google identity token expired', {
+      status: 400,
+      code: 'google_identity_invalid'
+    });
+  }
+  if (typeof claims.sub !== 'string' || !claims.sub || claims.sub.length > 255) {
+    throw new AppError('Google identity subject missing', {
+      status: 400,
+      code: 'google_identity_invalid'
+    });
+  }
+  if (claims.email_verified !== true && claims.email_verified !== 'true') {
+    throw new AppError('Google email is not verified', {
+      status: 400,
+      code: 'google_email_unverified'
+    });
+  }
+  const email = normalizeEmail(claims.email);
+  if (!email) {
+    throw new AppError('Google account email is required', {
+      status: 400,
+      code: 'google_email_missing'
+    });
+  }
+  return {
+    googleSub: claims.sub,
+    email,
+    name: typeof claims.name === 'string' ? claims.name.trim().slice(0, 80) : null,
+    picture: typeof claims.picture === 'string' && /^https:\/\//i.test(claims.picture)
+      ? claims.picture.slice(0, 2048)
+      : null
+  };
+}
+
+async function exchangeCodeWithGoogle(config, code, { fetchImpl = fetch } = {}) {
+  if (typeof code !== 'string' || !code) {
+    throw new AppError('Missing Google authorization code', {
+      status: 400,
+      code: 'google_code_missing'
+    });
+  }
+
+  const body = new URLSearchParams({
+    code,
+    client_id: config.googleClientId,
+    client_secret: config.googleClientSecret,
+    redirect_uri: config.googleRedirectUri,
+    grant_type: 'authorization_code'
+  });
+
+  let response;
+  try {
+    response = await fetchImpl(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json'
+      },
+      body
+    });
+  } catch {
+    throw new AppError('Unable to reach Google token endpoint', {
+      status: 502,
+      code: 'google_token_unreachable'
+    });
+  }
+
+  let json = null;
+  try {
+    json = await response.json();
+  } catch {
+    json = null;
+  }
+
+  if (!response.ok || !json?.id_token) {
+    throw new AppError('Google authorization failed', {
+      status: 400,
+      code: 'google_token_exchange_failed'
+    });
+  }
+
+  const claims = decodeIdTokenPayload(json.id_token);
+  return assertGoogleIdentity(config, claims);
+}
+
+/**
+ * Account resolution:
+ * 1) Match google_sub → sign-in
+ * 2) Match email → link google_sub if unset (Google verified email; never duplicate email)
+ * 3) Else create passwordless user with google_sub
+ * Never create a second account for the same email. Never overwrite a different google_sub.
+ */
+async function findOrCreateGoogleUser(pool, identity) {
+  const bySub = await query(
+    pool,
+    `SELECT id, email, password_hash, email_verified, google_sub, created_at
+     FROM users
+     WHERE google_sub = $1
+     LIMIT 1`,
+    [identity.googleSub]
+  );
+  if (bySub.rows[0]) {
+    const user = bySub.rows[0];
+    if (user.email !== identity.email) {
+      // Keep historical email; do not silently rewrite on conflict with another account.
+      const emailOwner = await query(
+        pool,
+        `SELECT id FROM users WHERE email = $1 AND id <> $2 LIMIT 1`,
+        [identity.email, user.id]
+      );
+      if (emailOwner.rows[0]) {
+        throw new AppError('Google account email conflicts with an existing account', {
+          status: 409,
+          code: 'google_email_conflict'
+        });
+      }
+    }
+    if (!user.email_verified) {
+      await query(
+        pool,
+        `UPDATE users SET email_verified = TRUE, updated_at = now() WHERE id = $1`,
+        [user.id]
+      );
+      user.email_verified = true;
+    }
+    return { user: publicUser(user), created: false, linked: false };
+  }
+
+  const byEmail = await query(
+    pool,
+    `SELECT id, email, password_hash, email_verified, google_sub, created_at
+     FROM users
+     WHERE email = $1
+     LIMIT 1`,
+    [identity.email]
+  );
+
+  if (byEmail.rows[0]) {
+    const existing = byEmail.rows[0];
+    if (existing.google_sub && existing.google_sub !== identity.googleSub) {
+      throw new AppError('This email is already linked to a different Google account', {
+        status: 409,
+        code: 'google_account_mismatch'
+      });
+    }
+    if (!existing.google_sub) {
+      // Safe link: Google asserts verified ownership of this email. No second account.
+      try {
+        await query(
+          pool,
+          `UPDATE users
+           SET google_sub = $2,
+               email_verified = TRUE,
+               updated_at = now()
+           WHERE id = $1 AND google_sub IS NULL`,
+          [existing.id, identity.googleSub]
+        );
+      } catch (error) {
+        if (
+          (error instanceof DatabaseError && error.code === '23505') ||
+          error?.code === '23505'
+        ) {
+          throw new AppError('Google account is already linked', {
+            status: 409,
+            code: 'google_already_linked'
+          });
+        }
+        throw error;
+      }
+      existing.google_sub = identity.googleSub;
+      existing.email_verified = true;
+      return { user: publicUser(existing), created: false, linked: true };
+    }
+    return { user: publicUser(existing), created: false, linked: false };
+  }
+
+  let inserted;
+  try {
+    inserted = await query(
+      pool,
+      `INSERT INTO users (email, password_hash, email_verified, google_sub)
+       VALUES ($1, NULL, TRUE, $2)
+       RETURNING id, email, email_verified, google_sub, created_at`,
+      [identity.email, identity.googleSub]
+    );
+  } catch (error) {
+    if (
+      (error instanceof DatabaseError && error.code === '23505') ||
+      error?.code === '23505'
+    ) {
+      throw new AppError('Unable to create account with that Google identity', {
+        status: 409,
+        code: 'google_account_conflict'
+      });
+    }
+    throw error;
+  }
+
+  return { user: publicUser(inserted.rows[0]), created: true, linked: false };
+}
+
+async function maybeSeedGoogleProfile(pool, userId, identity) {
+  if (!identity.name && !identity.picture) return;
+  try {
+    await query(
+      pool,
+      `INSERT INTO profiles (user_id, name, avatar_url)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE
+       SET
+         name = CASE
+           WHEN profiles.name IS NULL OR profiles.name = 'Operative' THEN EXCLUDED.name
+           ELSE profiles.name
+         END,
+         avatar_url = COALESCE(profiles.avatar_url, EXCLUDED.avatar_url),
+         updated_at = now()`,
+      [userId, identity.name || 'Operative', identity.picture]
+    );
+  } catch {
+    // Profile seeding is best-effort; auth must still succeed.
+  }
+}
+
+async function storeExchangeBundle(pool, bundle) {
+  const code = crypto.randomBytes(32).toString('base64url');
+  const codeHash = hashExchangeCode(code);
+  const expiresAt = new Date(Date.now() + EXCHANGE_TTL_SECONDS * 1000);
+  const payload = {
+    accessToken: bundle.accessToken,
+    refreshToken: bundle.refreshToken,
+    tokenType: 'Bearer',
+    expiresIn: bundle.accessTokenExpiresIn,
+    session: {
+      id: bundle.session.id,
+      expiresAt: bundle.session.expires_at
+    },
+    user: bundle.user
+  };
+  await query(
+    pool,
+    `INSERT INTO oauth_exchanges (code_hash, bundle_json, expires_at)
+     VALUES ($1, $2, $3)`,
+    [codeHash, JSON.stringify(payload), expiresAt.toISOString()]
+  );
+  return code;
+}
+
+async function consumeExchangeCode(pool, code) {
+  if (typeof code !== 'string' || !code || code.length > 512) {
+    throw new AppError('Invalid Google exchange code', {
+      status: 400,
+      code: 'invalid_exchange_code'
+    });
+  }
+  const codeHash = hashExchangeCode(code);
+  const result = await query(
+    pool,
+    `UPDATE oauth_exchanges
+     SET consumed_at = now()
+     WHERE code_hash = $1
+       AND consumed_at IS NULL
+       AND expires_at > now()
+     RETURNING bundle_json`,
+    [codeHash]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    throw new AppError('Invalid or expired Google exchange code', {
+      status: 400,
+      code: 'invalid_exchange_code'
+    });
+  }
+  try {
+    return JSON.parse(row.bundle_json);
+  } catch {
+    throw new AppError('Invalid Google exchange payload', {
+      status: 500,
+      code: 'invalid_exchange_payload'
+    });
+  }
+}
+
+function appendQuery(returnTo, params) {
+  const url = new URL(returnTo);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+  }
+  return url.toString();
+}
+
+async function completeGoogleOAuth(
+  pool,
+  config,
+  { code, state, error, errorDescription, fetchImpl = fetch, userAgent, ipAddress } = {}
+) {
+  requireGoogleConfig(config);
+
+  let returnTo = null;
+  try {
+    if (state) {
+      const payload = await verifyOAuthState(config, state);
+      returnTo = payload.returnTo;
+    }
+  } catch {
+    returnTo = null;
+  }
+
+  const fail = (errCode, message) => {
+    if (!returnTo) {
+      throw new AppError(message, { status: 400, code: errCode });
+    }
+    return {
+      redirectTo: appendQuery(returnTo, {
+        google_error: errCode,
+        google_error_message: message
+      })
+    };
+  };
+
+  if (error) {
+    const codeMap = {
+      access_denied: 'google_cancelled',
+      immediately_unavailable: 'google_unavailable'
+    };
+    return fail(codeMap[error] || 'google_rejected', errorDescription || 'Google sign-in was cancelled or rejected');
+  }
+
+  if (!state) {
+    return fail('invalid_oauth_state', 'Missing OAuth state');
+  }
+
+  let statePayload;
+  try {
+    statePayload = await verifyOAuthState(config, state);
+    returnTo = statePayload.returnTo;
+  } catch {
+    return fail('invalid_oauth_state', 'Invalid or expired OAuth state');
+  }
+
+  let identity;
+  try {
+    identity = await exchangeCodeWithGoogle(config, code, { fetchImpl });
+  } catch (err) {
+    const codeName = err instanceof AppError ? err.code : 'google_token_exchange_failed';
+    const message = err instanceof AppError ? err.message : 'Google authorization failed';
+    return fail(codeName, message);
+  }
+
+  try {
+    const { user } = await findOrCreateGoogleUser(pool, identity);
+    await maybeSeedGoogleProfile(pool, user.id, identity);
+    const sessionBundle = await createSession(pool, config, {
+      userId: user.id,
+      userAgent,
+      ipAddress
+    });
+    const exchangeCode = await storeExchangeBundle(pool, { ...sessionBundle, user });
+    return {
+      redirectTo: appendQuery(returnTo, { google_exchange: exchangeCode })
+    };
+  } catch (err) {
+    const codeName = err instanceof AppError ? err.code : 'google_signin_failed';
+    const message = err instanceof AppError ? err.message : 'Google sign-in failed';
+    return fail(codeName, message);
+  }
+}
+
+module.exports = {
+  ELECTRON_RETURN,
+  GOOGLE_AUTH_URL,
+  GOOGLE_TOKEN_URL,
+  startGoogleOAuth,
+  completeGoogleOAuth,
+  consumeExchangeCode,
+  findOrCreateGoogleUser,
+  exchangeCodeWithGoogle,
+  assertGoogleIdentity,
+  resolveReturnTo,
+  verifyOAuthState,
+  signOAuthState,
+  buildGoogleAuthorizeUrl,
+  requireGoogleConfig,
+  hashExchangeCode
+};

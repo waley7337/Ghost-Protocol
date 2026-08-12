@@ -11,5 +11,6 @@ module.exports = {
   users: require('./users'),
   profiles: require('./profiles'),
   progress: require('./progress'),
-  progressValidation: require('./progressValidation')
+  progressValidation: require('./progressValidation'),
+  googleOAuth: require('./googleOAuth')
 };

@@ -21,8 +21,9 @@ test('src/auth.js has no Supabase runtime imports or dead project host', () => {
   assert.match(auth, /from '\.\/api\.js'/);
   assert.match(auth, /syncEnabled/);
   assert.match(auth, /progress_not_found/);
-  assert.match(auth, /Google sign-in is temporarily unavailable/);
+  assert.match(auth, /exchangeGoogle|buildGoogleStartUrl|google_exchange/);
   assert.match(auth, /Password reset is temporarily unavailable/);
+  assert.doesNotMatch(auth, /Google sign-in is temporarily unavailable/);
   // Visual parity with pre-Phase-5 auth card: Google / OR / Forgot remain visible.
   assert.match(auth, /class="auth-btn auth-btn-google" id="auth-google"/);
   assert.match(auth, /class="auth-divider">OR<\/div>/);

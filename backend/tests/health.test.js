@@ -134,7 +134,8 @@ test('migration files are ordered deterministically by numeric prefix', () => {
     '002_create_sessions.sql',
     '003_create_profiles.sql',
     '004_create_user_progress.sql',
-    '005_session_refresh_families.sql'
+    '005_session_refresh_families.sql',
+    '006_google_oauth.sql'
   ]);
   assert.deepEqual([...files].sort((a, b) => a.localeCompare(b, 'en')), files);
 });
@@ -163,6 +164,12 @@ test('migration SQL enforces ownership FKs and hashed session credential column'
   assert.match(users, /CREATE TABLE users/i);
   assert.match(users, /password_hash/i);
   assert.match(users, /users_email_normalized/i);
+
+  const googleOauth = stripSqlComments(
+    fs.readFileSync(path.join(DEFAULT_MIGRATIONS_DIR, '006_google_oauth.sql'), 'utf8')
+  );
+  assert.match(googleOauth, /google_sub/i);
+  assert.match(googleOauth, /oauth_exchanges/i);
 
   assert.match(sessions, /refresh_token_hash/i);
   assert.match(sessions, /REFERENCES users \(id\) ON DELETE CASCADE/i);

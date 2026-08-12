@@ -131,6 +131,12 @@ test('vercel.json points at web static output', () => {
   assert.equal(vercel.outputDirectory, 'dist/web');
   assert.equal(vercel.buildCommand, 'npm run build:web');
   assert.equal(vercel.framework, null);
+  const configHeader = vercel.headers.find((h) => h.source === '/assets/config.js');
+  assert.ok(configHeader);
+  assert.equal(
+    configHeader.headers.find((x) => x.key === 'Cache-Control')?.value,
+    'no-store'
+  );
 });
 
 test('web config and sources contain no server secrets or Supabase runtime', () => {

@@ -16,6 +16,10 @@ Status: **configuration and local production web build only**. No production Ver
 
 Optional alias understood by the build script: `API_PUBLIC_URL`.
 
+Production/Vercel builds **fail** if this value is missing, non-HTTPS, or loopback (`localhost` / `127.0.0.1` / `::1`). There is no silent localhost fallback on Vercel.
+
+Google OAuth client secrets are **never** set on Vercel. The browser only navigates to the API `/auth/google` start URL.
+
 ## Forbidden on Vercel (never)
 
 - `DATABASE_URL`

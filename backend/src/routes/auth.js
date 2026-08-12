@@ -14,6 +14,11 @@ const {
   logoutAuth,
   getUserById
 } = require('../services/users');
+const {
+  startGoogleOAuth,
+  completeGoogleOAuth,
+  consumeExchangeCode
+} = require('../services/googleOAuth');
 
 function tokenResponse(bundle) {
   const body = {
@@ -30,7 +35,25 @@ function tokenResponse(bundle) {
   return body;
 }
 
-function createAuthHandlers({ config, getPool, requireAuth, rateLimitAuth }) {
+function sendRedirect(res, location) {
+  res.writeHead(302, {
+    Location: location,
+    'Cache-Control': 'no-store'
+  });
+  res.end();
+}
+
+function parseQuery(req) {
+  try {
+    const host = req.headers.host || 'localhost';
+    const url = new URL(req.url || '/', `http://${host}`);
+    return url.searchParams;
+  } catch {
+    return new URLSearchParams();
+  }
+}
+
+function createAuthHandlers({ config, getPool, requireAuth, rateLimitAuth, fetchImpl }) {
   return {
     async register(req, res) {
       if (rateLimitAuth && !rateLimitAuth(req, res, clientIp)) return;
@@ -134,8 +157,62 @@ function createAuthHandlers({ config, getPool, requireAuth, rateLimitAuth }) {
       } catch (error) {
         sendAppError(res, error);
       }
+    },
+
+    async googleStart(req, res) {
+      if (rateLimitAuth && !rateLimitAuth(req, res, clientIp)) return;
+      try {
+        const params = parseQuery(req);
+        const started = await startGoogleOAuth(config, {
+          returnTo: params.get('return_to') || undefined,
+          platform: params.get('platform') || undefined
+        });
+        sendRedirect(res, started.url);
+      } catch (error) {
+        sendAppError(res, error);
+      }
+    },
+
+    async googleCallback(req, res) {
+      if (rateLimitAuth && !rateLimitAuth(req, res, clientIp)) return;
+      try {
+        const params = parseQuery(req);
+        const pool = getPool();
+        const result = await completeGoogleOAuth(pool, config, {
+          code: params.get('code') || undefined,
+          state: params.get('state') || undefined,
+          error: params.get('error') || undefined,
+          errorDescription: params.get('error_description') || undefined,
+          fetchImpl,
+          userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null,
+          ipAddress: clientIp(req, { trustProxy: config.trustProxy })
+        });
+        sendRedirect(res, result.redirectTo);
+      } catch (error) {
+        sendAppError(res, error);
+      }
+    },
+
+    async googleExchange(req, res) {
+      if (rateLimitAuth && !rateLimitAuth(req, res, clientIp)) return;
+      try {
+        const body = await readJsonBody(req, { limitBytes: config.jsonBodyLimitBytes });
+        const pool = getPool();
+        const bundle = await consumeExchangeCode(pool, body.exchangeCode || body.code);
+        sendJson(res, 200, bundle);
+      } catch (error) {
+        if (error.code === 'payload_too_large') {
+          sendAppError(res, new AppError('Request body too large', { status: 413, code: 'payload_too_large' }));
+          return;
+        }
+        if (error.code === 'invalid_json') {
+          sendAppError(res, new AppError('Invalid JSON body', { status: 400, code: 'invalid_json' }));
+          return;
+        }
+        sendAppError(res, error);
+      }
     }
   };
 }
 
-module.exports = { createAuthHandlers, tokenResponse };
+module.exports = { createAuthHandlers, tokenResponse, sendRedirect };
