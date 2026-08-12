@@ -1,11 +1,14 @@
 /**
- * Ghost Protocol API client (Phase 5 + Phase 6 storage bridge).
+ * Ghost Protocol API client (Phase 5–7).
  * Public config only — never ships DATABASE_URL or server secrets.
  *
  * Access tokens: in-memory only (not persisted).
- * Refresh tokens: Electron main-process authSession bridge (safeStorage-encrypted
- * at rest when available). Non-Electron fallback is memory-only.
+ * Refresh tokens:
+ *   - Electron: main-process authSession bridge (safeStorage-encrypted at rest when available)
+ *   - Browser/web: memory-only (no localStorage / sessionStorage persistence)
  */
+
+import { detectAuthStorageMode, detectRuntime } from './platform.js';
 
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:3000';
 
@@ -23,15 +26,27 @@ export function resolveApiBaseUrl({
   explicit,
   desktopBase,
   globalBase,
+  envBase,
   fallback = DEFAULT_API_BASE_URL
 } = {}) {
-  const candidates = [explicit, desktopBase, globalBase, fallback];
+  const candidates = [explicit, desktopBase, globalBase, envBase, fallback];
   for (const value of candidates) {
     if (typeof value === 'string' && value.trim()) {
       return value.trim().replace(/\/+$/, '');
     }
   }
   return fallback;
+}
+
+/**
+ * Public client-side API URL resolution (browser + Electron renderer).
+ * Never reads DATABASE_URL / token secrets (those are server-only).
+ */
+export function resolvePublicApiBaseUrl(globalObj = globalThis) {
+  return resolveApiBaseUrl({
+    desktopBase: globalObj?.ghostDesktop?.apiBaseUrl,
+    globalBase: globalObj?.GHOST_API_BASE_URL
+  });
 }
 
 function safeJsonParse(text) {
@@ -75,7 +90,7 @@ export function createApiClient(options = {}) {
         globalBase: globalThis.GHOST_API_BASE_URL
       }));
 
-  const storage = options.storage || createDefaultTokenStorage();
+  const storage = options.storage || createDefaultTokenStorage(globalThis);
 
   let accessToken = null;
   let refreshToken = null;
@@ -360,48 +375,43 @@ function mapSessionBridgeError(error) {
   return error;
 }
 
-function createDefaultTokenStorage() {
-  const desktop = globalThis.ghostDesktop;
-  const authSession = desktop?.authSession;
-  if (
-    authSession &&
-    typeof authSession.load === 'function' &&
-    typeof authSession.store === 'function' &&
-    typeof authSession.clear === 'function'
-  ) {
-    return {
-      async getRefreshToken() {
-        try {
-          const value = await authSession.load();
-          return typeof value === 'string' && value ? value : null;
-        } catch (error) {
-          throw mapSessionBridgeError(error);
-        }
-      },
-      async setRefreshToken(token) {
-        try {
-          if (typeof token !== 'string' || !token) {
-            await authSession.clear();
-            return;
-          }
-          await authSession.store(token);
-        } catch (error) {
-          throw mapSessionBridgeError(error);
-        }
-      },
-      async clearRefreshToken() {
-        try {
-          await authSession.clear();
-        } catch (error) {
-          throw mapSessionBridgeError(error);
-        }
+function createElectronTokenStorage(authSession) {
+  return {
+    mode: 'electron-safeStorage',
+    async getRefreshToken() {
+      try {
+        const value = await authSession.load();
+        return typeof value === 'string' && value ? value : null;
+      } catch (error) {
+        throw mapSessionBridgeError(error);
       }
-    };
-  }
+    },
+    async setRefreshToken(token) {
+      try {
+        if (typeof token !== 'string' || !token) {
+          await authSession.clear();
+          return;
+        }
+        await authSession.store(token);
+      } catch (error) {
+        throw mapSessionBridgeError(error);
+      }
+    },
+    async clearRefreshToken() {
+      try {
+        await authSession.clear();
+      } catch (error) {
+        throw mapSessionBridgeError(error);
+      }
+    }
+  };
+}
 
-  // Non-Electron / missing bridge: memory-only (no localStorage refresh persistence).
+function createMemoryTokenStorage() {
+  // Browser/web and missing bridge: memory-only — never localStorage/sessionStorage.
   let memoryRefresh = null;
   return {
+    mode: 'memory',
     async getRefreshToken() {
       return memoryRefresh;
     },
@@ -412,6 +422,15 @@ function createDefaultTokenStorage() {
       memoryRefresh = null;
     }
   };
+}
+
+export function createDefaultTokenStorage(globalObj = globalThis) {
+  const mode = detectAuthStorageMode(globalObj);
+  if (mode === 'electron-safeStorage') {
+    return createElectronTokenStorage(globalObj.ghostDesktop.authSession);
+  }
+  void detectRuntime(globalObj);
+  return createMemoryTokenStorage();
 }
 
 export const api = createApiClient();

@@ -38,6 +38,8 @@ test('src/api.js never references Supabase', () => {
   assert.match(api, /refreshInFlight/);
   assert.match(api, /\/auth\/login/);
   assert.match(api, /\/me\/progress/);
+  assert.match(api, /from '\.\/platform\.js'/);
+  assert.match(api, /createMemoryTokenStorage|mode: 'memory'/);
 });
 
 test('root package.json does not depend on @supabase/supabase-js', () => {
