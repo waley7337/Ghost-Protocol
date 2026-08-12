@@ -29,11 +29,11 @@ Evidence below includes the existing Electron desktop application and client cod
 
 `electron/preload.cjs` exposes only a frozen `window.ghostDesktop` object with:
 
-- `beginOAuth(url)`
-- `onAuthCallback(callback)`
+- `apiBaseUrl` (public API base; sync, config-driven)
+- `beginOAuth(url)` / `onAuthCallback(callback)` (deep-link architecture retained; OAuth provider not configured)
+- `getRefreshToken` / `setRefreshToken` / `clearRefreshToken` (opaque string IPC only)
 
-Node primitives are not exposed to the renderer.
-
+Node primitives and filesystem APIs are not exposed to the renderer. Token values are never logged.
 ### Navigation and window restrictions
 
 - Off-document navigation is blocked (`will-navigate`).
@@ -44,23 +44,24 @@ Node primitives are not exposed to the renderer.
 
 - Scheme: `ghost-protocol`
 - Auth callbacks accepted only when protocol and hostname match expected auth callback shape before forwarding to the renderer.
-- OAuth launch IPC allowlists `https:` and a specific hostname before `openExternal`.
+- OAuth launch IPC requires `https:` but **rejects all launches** until a Phase 6 provider allowlist is configured (Google OAuth not implemented).
 
 ### Content Security Policy (Electron session)
 
-A CSP header is injected for the desktop session. It restricts default sources and limits `connect-src` to self plus the legacy Supabase hosts.  
+A CSP header is injected for the desktop session. It restricts default sources and limits `connect-src` to `'self'` plus the configured Ghost Protocol API base URL (default local API). Supabase hosts are **not** in the allowlist.  
 Note: `script-src` currently allows `'unsafe-inline'` because the UI is a monolithic inline script in `index.html`.
 
-### Client-side session handling (legacy Supabase path)
+### Client-side session handling (Phase 5 backend API)
 
-- PKCE OAuth flow.
-- Session persistence and auto-refresh via Supabase client (when the project is reachable).
-- Session restore attempts `getUser()` validation before accepting a cached session.
+- Access tokens: **in-memory only** in the renderer (not written to localStorage).
+- Refresh tokens: persisted via Electron main-process bridge to a `userData` file (mode `0600`). **Not** OS keychain yet (PLANNED Phase 6). Non-Electron fallback is memory-only.
+- Single in-flight refresh promise coordinates concurrent 401s (avoids refresh-family reuse revocation races).
+- Session restore: stored refresh → `POST /auth/refresh` → `GET /auth/me` → profile/progress; otherwise auth gate (no stale local impersonation).
+- Logout: best-effort `POST /auth/logout`, then always clear local tokens.
 
 ### Legacy database policies (Supabase migration file)
 
-The retained SQL migration defines row-level security policies intended to restrict `profiles` and `user_progress` to the owning user. Those policies apply only while using Supabase and are **not** a substitute for the planned backend authorization model.
-
+The retained SQL under `supabase/` is **LEGACY/HISTORICAL**. It is not used by the Electron runtime. Backend authorization uses `req.auth.userId`, not Supabase RLS.
 ### Packaging
 
 - `asar: true`
@@ -97,10 +98,10 @@ The retained SQL migration defines row-level security policies intended to restr
 - In-process rate limiting on auth endpoints; does not trust `X-Forwarded-For` unless `TRUST_PROXY=true`
 - Production startup requires `ACCESS_TOKEN_SECRET` and `REFRESH_TOKEN_SECRET` (≥32 chars)
 
-**Non-claim:** Electron/web clients are **not** wired to these endpoints yet. Legacy Supabase auth remains in the desktop app.  
-**Non-claim:** Google OAuth, password reset emails, and distributed/edge rate limits are **not** implemented.
+**Non-claim:** Google OAuth, password reset emails, and distributed/edge rate limits are **not** implemented.  
+**Non-claim:** Railway/Vercel/Cloudflare are **not** deployed from this phase.
 
-### User-scoped profile + progress API (Phase 4)
+### User-scoped profile + progress API (Phase 4) + client wiring (Phase 5)
 
 - `GET /me/profile`, `PUT /me/profile`
 - `GET /me/progress`, `PUT /me/progress`
@@ -108,10 +109,8 @@ The retained SQL migration defines row-level security policies intended to restr
 - Profile field allowlist: `name`, `avatarUrl`
 - Progress payload validation for GhostProgress shape (types, bounds, size)
 - Parameterized SQL with `WHERE user_id = $authenticatedUserId`
-- `GET /me/progress` returns `404` / `progress_not_found` when no server row exists (supports later client hydrate-or-upload)
-
-**Non-claim:** Electron/web still do not call these APIs.
-
+- `GET /me/progress` returns `404` / `progress_not_found` when no server row exists
+- Electron client hydrates server progress when present; otherwise uploads local snapshot. Startup sync barrier prevents pre-hydrate uploads from overwriting server progress.
 ### PostgreSQL privilege model (documented intent)
 
 Ideal separation:
@@ -143,10 +142,10 @@ The following controls remain unimplemented.
 ### Authentication (planned / remaining)
 
 - Password reset with safe, time-limited tokens
-- Google OAuth (desktop deep-link + web redirect)
+- Google OAuth (desktop deep-link + web redirect) — UI currently hidden
 - Email verification workflow
 - Distributed / Cloudflare edge rate limiting and bot protections
-- Client migration off Supabase onto these backend endpoints
+- OS keychain (or equivalent) for refresh-token persistence
 
 ### Authorization (planned / remaining)
 
@@ -165,17 +164,15 @@ The following controls remain unimplemented.
 
 - Operational enforcement of least-privilege roles in each hosting environment
 - Automated integration testing against CI PostgreSQL
-- No direct client → PostgreSQL connectivity remains a hard rule (clients still use legacy Supabase until later phases)
+- No direct client → PostgreSQL connectivity remains a hard rule
 
-### Clients (planned hardening / migration)
+### Clients (planned hardening)
 
-- Replace direct Supabase access with HTTPS calls to the backend API
-- Environment-based public API URL only in browser/Electron bundles
-- Keep Electron isolation controls; update CSP/`connect-src` and OAuth allowlists to the new API/IdP hosts
+- Upgrade refresh persistence from userData file to OS keychain
 - Add default-deny permission request handling
 - Tighten external URL allowlisting where practical
 - Web CSP via hosting headers (Vercel / Cloudflare)
-
+- Production API URL / packaging for hosted backends
 ### Edge / production (planned)
 
 - Cloudflare DNS, TLS, WAF, DDoS protection
@@ -192,7 +189,8 @@ The following controls remain unimplemented.
 
 ## Explicit non-claims
 
-- Phase 3 authentication is backend-only and **not** connected to Electron/web UI yet.
-- Presence of auth endpoints does **not** mean production is deployed on Railway.
-- Legacy Supabase client code remains until an explicit client migration phase.
+- Presence of auth endpoints / local client wiring does **not** mean production is deployed on Railway.
+- Supabase runtime is removed from the Electron client; `supabase/` SQL remains historical only.
+- Refresh persistence uses a main-process userData file, **not** OS keychain.
+- Google OAuth and password reset are **not** implemented.
 - In-process rate limiting is a foundation, not a complete abuse-prevention system.

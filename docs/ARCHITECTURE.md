@@ -1,6 +1,6 @@
 # Ghost Protocol Architecture
 
-Status: Phase 2 data foundation in progress. This document describes the **current** runtime system, what Phase 2 has **implemented** in `backend/`, and the **target** system. Items marked planned are not implemented yet.
+Status: Phase 5 client migration complete (local). This document describes the **current** runtime system, what is **implemented**, and the **target** system. Items marked planned are not implemented yet.
 
 Ghost Protocol is a single-user-scoped learning application (not multi-tenant). Private resources are owned by the authenticated user:
 
@@ -13,55 +13,51 @@ User
 
 ---
 
-## Current architecture (Phase 0 / baseline)
+## Current architecture (Phase 5)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                     ELECTRON DESKTOP APP                         │
 │  main → preload → renderer (index.html + auth.bundle.js)         │
-│  localStorage progress + optional Supabase sync                  │
+│  localStorage progress cache + Ghost Protocol API client         │
+│  refresh token via main-process userData bridge (not keychain)   │
 └───────────────────────────────┬──────────────────────────────────┘
-                                │ HTTPS (client SDK)
+                                │ HTTP(S) JSON (Authorization: Bearer)
                                 ▼
                  ┌──────────────────────────────┐
-                 │  SUPABASE (UNREACHABLE)      │
-                 │  Auth + PostgREST            │
-                 │  profiles / user_progress    │
-                 └──────────────────────────────┘
+                 │  GHOST PROTOCOL BACKEND API  │
+                 │  /auth/*  /me/profile        │
+                 │  /me/progress                │
+                 └──────────────┬───────────────┘
+                                │ DATABASE_URL (server-only)
+                                ▼
+                         PostgreSQL
 ```
 
-The Electron desktop app still talks directly to Supabase (when reachable). That pattern will be replaced in later phases.
+**Honest status**
 
-### Phase 2 backend (implemented, not wired to clients)
+| Item | Status |
+|------|--------|
+| Supabase runtime in Electron | **REMOVED / DEPRECATED** (SQL under `supabase/` kept as LEGACY/HISTORICAL) |
+| Backend API | **IMPLEMENTED** |
+| Electron client → backend | **IMPLEMENTED** (Phase 5) |
+| Railway / Vercel / Cloudflare deploy | **NOT DEPLOYED** |
+| OS keychain refresh storage | **PLANNED** (Phase 6) — current: main-process userData file via IPC |
+| Google OAuth | **NOT IMPLEMENTED** (UI hidden; deep-link architecture retained) |
+| Password reset | **NOT IMPLEMENTED** (UI hidden) |
 
-The `backend/` package now includes:
+### Phase 2–4 backend (implemented)
 
-- PostgreSQL connection pool via `pg` (server-side only; `DATABASE_URL` from environment)
-- Deterministic SQL migrations for `users`, `sessions`, `profiles`, `user_progress`
-- Migration runner (`npm run db:migrate`, `npm run db:status`)
-- `GET /health` and `GET /health/db` (db health returns only ok/unavailable)
-- Railway-oriented process readiness: `PORT`/`HOST` bind, production config gate, graceful pool shutdown
+- PostgreSQL pool, migrations, health endpoints
+- Auth: register/login/refresh/logout/me (Argon2id, JWT access, hashed refresh + family reuse revocation)
+- `GET/PUT /me/profile`, `GET/PUT /me/progress` — ownership from `req.auth.userId` only
 
-There is still **no** live Railway/Vercel/Cloudflare deployment, and **no** Electron/web client connection to this backend. Legacy Supabase client code remains in the Electron app until a later migration phase.
+### Phase 5 client (implemented)
 
-### Phase 3 backend authentication (implemented, not wired to clients)
-
-- Email/password register + login
-- Argon2id password hashing
-- Short-lived JWT access tokens (HS256, iss/aud/exp verified)
-- Server-tracked refresh sessions with HMAC-SHA256 token hashes (no plaintext refresh tokens in DB)
-- Refresh-token rotation and family-wide reuse revocation (`family_id`, `replaced_by_session_id`)
-- Logout revocation
-- `GET /auth/me` protected by centralized auth middleware (server-derived identity)
-- In-process auth rate limiting foundation (direct socket IP by default; `TRUST_PROXY` opt-in)
-
-### Phase 4 user-scoped profile + progress API (implemented, not wired to clients)
-
-- `GET/PUT /me/profile` — ownership from `req.auth.userId` only
-- `GET/PUT /me/progress` — GhostProgress-compatible JSONB; `404 progress_not_found` when empty
-- Client ownership identifiers are **never authoritative** (stripped/ignored; queries always use authenticated user id)
-- Profile rows are lazily created on first profile access (UPSERT)
-- Progress rows are created on first successful `PUT /me/progress`
+- `src/api.js` + rewritten `src/auth.js` (bundled to `assets/auth.bundle.js`)
+- Maps former Supabase calls to backend endpoints
+- Startup progress sync barrier (auth → load server progress → hydrate/init → enable sync)
+- CSP `connect-src` allowlists the configured API base URL (`GHOST_API_BASE_URL` / default `http://127.0.0.1:3000`)
 
 Production hosting intent (not deployed yet): **Railway** for Backend API + PostgreSQL. See `docs/RAILWAY.md`.
 
@@ -193,36 +189,36 @@ Desktop packaging must continue to enforce context isolation, disabled `nodeInte
 
 ### PostgreSQL role
 
-- Durable storage for `User`, `Session`, `Profile`, and `User Progress` (schema implemented in Phase 2 migrations).
-- Source of truth for cloud-synced progress once auth + APIs are online (later phases).
-- Local `localStorage` on clients may remain a cache/offline convenience, not an authorization authority.
+- Durable storage for `User`, `Session`, `Profile`, and `User Progress`.
+- Source of truth for cloud-synced progress for authenticated clients.
+- Local `localStorage` on clients remains a cache/offline convenience, not an authorization authority.
 
 ---
 
-## Repository layout (Phase 2)
+## Repository layout (Phase 5)
 
 ```
 /
 ├── docs/                 # Architecture and security documentation
-├── backend/              # Auth + /me profile/progress APIs (not wired to clients)
+├── backend/              # Auth + /me profile/progress APIs
 │   ├── migrations/       # First-party SQL migrations
-│   ├── src/db/           # Pool, query helper, migration runner
+│   ├── src/              # API server
 │   └── tests/
-├── electron/             # Existing desktop shell (unchanged)
-├── index.html            # Existing UI (unchanged)
-├── src/                  # Existing auth source (unchanged)
-├── assets/               # Existing static assets (unchanged)
-└── supabase/             # Legacy schema notes (retained until client migration)
+├── electron/             # Desktop shell + secure preload bridge
+├── index.html            # Learning UI (unchanged content; auth via bundle)
+├── src/                  # api.js + auth.js (bundled to assets/auth.bundle.js)
+├── tests/client/         # UNIT client API/auth migration tests
+├── assets/               # Static assets + auth.bundle.js
+└── supabase/             # LEGACY/HISTORICAL schema notes only
 ```
 
 Frontend relocation into `/frontend` is deferred so root `npm start` remains unchanged.
 
 ---
 
-## Explicit non-goals (still true after Phase 2)
+## Explicit non-goals (still true)
 
-- No authentication implementation in the new backend.
-- No client wiring to the new backend.
-- No removal of Supabase client code.
-- No Electron or UI changes.
+- No Railway / Vercel / Cloudflare deployment in this phase.
+- No Google OAuth or password-reset backend.
 - No multi-tenant / company model.
+- No OS keychain refresh storage yet (userData IPC bridge is temporary durable storage).

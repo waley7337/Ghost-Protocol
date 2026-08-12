@@ -1,8 +1,8 @@
 {
   "name": "ghost-protocol-backend",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
-  "description": "Ghost Protocol API — auth + user-scoped profile/progress (Phase 4)",
+  "description": "Ghost Protocol API — auth + user-scoped profile/progress (Phase 5 client wired)",
   "main": "src/app.js",
   "type": "commonjs",
   "scripts": {

@@ -11,16 +11,47 @@ Ghost Protocol is an interactive cybersecurity learning platform packaged as a s
 
 ```bash
 npm install
+cd backend && npm install && cp .env.example .env
+# configure DATABASE_URL, ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET
+npm run db:migrate
 npm start
 ```
 
-Progress is stored locally under the `ghost_protocol` local-storage key.
+In another terminal (repo root):
+
+```bash
+export GHOST_API_BASE_URL=http://127.0.0.1:3000   # optional; this is the default
+npm start
+```
+
+Progress is stored locally under the `ghost_protocol` local-storage key and synced to the backend after authentication.
+
+## Authentication (Phase 5)
+
+The desktop client talks to the Ghost Protocol backend API (`src/api.js` / `src/auth.js`):
+
+| UI action | API |
+|-----------|-----|
+| Create account | `POST /auth/register` (immediate session) |
+| Sign in | `POST /auth/login` |
+| Session restore | refresh → `GET /auth/me` → profile/progress |
+| Logout | `POST /auth/logout` + local clear |
+| Profile / progress | `GET/PUT /me/profile`, `GET/PUT /me/progress` |
+
+- Access tokens stay in memory.
+- Refresh tokens persist via the Electron main-process bridge (userData file). OS keychain upgrade is planned.
+- Google sign-in and password reset are temporarily unavailable (UI hidden). The `ghost-protocol://` deep-link architecture is retained for a later OAuth phase.
+- Supabase is **not** used at runtime. The `supabase/` folder is legacy/historical only.
+
+**Not deployed yet:** Railway, Vercel, Cloudflare.
 
 ## Verify
 
 ```bash
 npm run lint
-npm run build:dir
+npm test
+npm run auth:bundle
+cd backend && npm test
 ```
 
 ## Package
@@ -39,17 +70,4 @@ Public distribution requires platform signing credentials: Apple Developer ID si
 
 ## Security
 
-The renderer uses context isolation, disabled Node integration, Chromium sandboxing, locked navigation, blocked webviews, no exposed IPC/native API, and a restrictive Content Security Policy.
-
-## Supabase authentication setup
-
-The desktop client is configured for project `lkbdybejiiijocnhwmvm`. Its publishable key is intentionally safe to ship in a client application; never add a `service_role` key to this repository.
-
-1. Open the Supabase SQL Editor and run [`supabase/migrations/202607080001_auth_and_progress.sql`](supabase/migrations/202607080001_auth_and_progress.sql). This creates user profiles and per-user progress with row-level security.
-2. In **Authentication → URL Configuration**, add `ghost-protocol://auth/callback` to Redirect URLs.
-   For a hosted web build, also add its exact HTTPS URL (for example `https://app.example.com/`).
-3. In **Authentication → Providers**, keep Email enabled and enable Google.
-4. In Google Cloud, create OAuth web credentials and add `https://lkbdybejiiijocnhwmvm.supabase.co/auth/v1/callback` as an authorized redirect URI.
-5. Paste the Google client ID and secret into the Supabase Google provider settings.
-
-Google authentication uses the provider redirect flow on the web. In Electron it opens the system browser and uses PKCE, returning through the registered `ghost-protocol://` deep link. Sessions persist and refresh automatically on both platforms. If cloud sync is temporarily unavailable, an existing authenticated session can continue with locally cached progress and sync again after connectivity returns.
+The renderer uses context isolation, disabled Node integration, Chromium sandboxing, locked navigation, blocked webviews, a minimal frozen preload bridge, and a restrictive Content Security Policy (`connect-src` allowlists the configured API base URL only).

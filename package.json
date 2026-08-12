@@ -5,11 +5,14 @@
   "author": "Waley Elnagdi",
   "license": "UNLICENSED",
   "private": true,
+  "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
     "lint": "eslint electron --max-warnings=0",
+    "test:client": "node --test tests/client/**/*.test.js",
+    "test": "npm run test:client",
     "auth:bundle": "esbuild src/auth.js --bundle --minify --format=iife --outfile=assets/auth.bundle.js",
     "icons": "png2icons assets/icons/png/1024x1024.png assets/icons/icon -allwe -bc",
     "build": "npm run auth:bundle && electron-builder",
@@ -17,9 +20,6 @@
     "build:mac": "npm run auth:bundle && electron-builder --mac",
     "build:win": "npm run auth:bundle && electron-builder --win",
     "build:linux": "npm run auth:bundle && electron-builder --linux"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.57.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.1",
@@ -32,24 +32,46 @@
   },
   "build": {
     "appId": "com.waleyelnagdi.ghostprotocol",
-    "protocols": [{
-      "name": "Ghost Protocol Authentication",
-      "schemes": ["ghost-protocol"]
-    }],
+    "protocols": [
+      {
+        "name": "Ghost Protocol Authentication",
+        "schemes": [
+          "ghost-protocol"
+        ]
+      }
+    ],
     "productName": "Ghost Protocol",
     "copyright": "Copyright © 2026 Waley Elnagdi",
     "asar": true,
-    "directories": { "output": "release", "buildResources": "assets/icons" },
-    "files": ["index.html", "electron/**/*", "assets/**/*", "package.json"],
+    "directories": {
+      "output": "release",
+      "buildResources": "assets/icons"
+    },
+    "files": [
+      "index.html",
+      "electron/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
     "mac": {
       "category": "public.app-category.education",
       "icon": "assets/icons/icon.icns",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false
     },
-    "dmg": { "title": "Ghost Protocol ${version}" },
-    "win": { "icon": "assets/icons/icon.ico", "target": ["nsis"] },
+    "dmg": {
+      "title": "Ghost Protocol ${version}"
+    },
+    "win": {
+      "icon": "assets/icons/icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
@@ -60,7 +82,10 @@
     "linux": {
       "icon": "assets/icons/png",
       "category": "Education",
-      "target": ["AppImage", "deb"]
+      "target": [
+        "AppImage",
+        "deb"
+      ]
     }
   }
 }

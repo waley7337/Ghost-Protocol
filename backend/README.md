@@ -1,6 +1,6 @@
 # Ghost Protocol Backend
 
-Phase 4 provides PostgreSQL persistence, authentication, and user-scoped profile/progress APIs.
+Phase 5: PostgreSQL persistence, authentication, user-scoped profile/progress APIs, and Electron client wiring to this API.
 
 ## Implemented
 
@@ -17,17 +17,18 @@ Phase 4 provides PostgreSQL persistence, authentication, and user-scoped profile
 - Argon2id passwords, JWT access tokens, hashed refresh sessions with rotation
 - `GET /health`, `GET /health/db`
 - Railway-oriented process readiness (`PORT`, production config gate, graceful shutdown)
+- Electron desktop client calls these endpoints (see root `src/api.js` / `src/auth.js`)
 
 ## Ownership rule
 
 **CLIENT OWNERSHIP IDENTIFIERS ARE NEVER AUTHORITATIVE.**  
 `/me/*` always scopes to `req.auth.userId` from a verified access token. Body fields like `user_id` / `userId` / `id` are ignored or rejected for unsupported keys.
 
-## Not implemented / not wired
+## Not implemented
 
-- Electron or web client migration off Supabase
 - Google OAuth / password reset
 - Railway / Cloudflare / Vercel deployment
+- OS keychain refresh storage on the desktop client (userData IPC bridge is in place)
 
 ## Local setup
 
@@ -39,4 +40,21 @@ npm run db:migrate
 npm start
 ```
 
-Root Electron `npm start` is unchanged and still uses the legacy Supabase client.
+Default listen: `http://127.0.0.1:3000` (or `HOST`/`PORT` from env).
+
+From the repo root, run the Electron app against that API:
+
+```bash
+# optional override (also used for CSP connect-src)
+export GHOST_API_BASE_URL=http://127.0.0.1:3000
+npm start
+```
+
+## Tests
+
+```bash
+cd backend
+npm test
+```
+
+Integration tests that need a live database skip when `DATABASE_URL` is unset. Do not treat a green unit run as full live-PG E2E.

@@ -85,7 +85,7 @@ Renderer ──IPC──► preload/main
 
 - **Threat:** Client supplies another user's id and reads/writes their profile or progress.
 - **Mitigations (Phase 4):** Server-derived identity (`req.auth.userId`); every `/me/profile` and `/me/progress` query scoped to that id; client `user_id` / `userId` / `id` fields are stripped or ignored; automated cross-user isolation tests on the memory pool.
-- **Current:** Backend ownership for profile/progress is implemented. Legacy Electron still uses Supabase + client-supplied `user_id` until Phase 5 migration.
+- **Current:** Backend ownership for profile/progress is implemented. Phase 5 Electron client calls `/me/*` with Bearer access tokens and never treats client `user_id` as authoritative.
 
 ### Injection
 
@@ -97,7 +97,7 @@ Renderer ──IPC──► preload/main
 
 - **Threat:** Compromised/rogue renderer invokes preload/main with dangerous URLs or payloads.
 - **Planned mitigations:** Keep IPC minimal; validate types/URLs in main; deny unexpected channels; sender checks where practical.
-- **Current:** OAuth URL host allowlist and auth deep-link filtering exist; further hardening planned.
+- **Current:** Refresh-token IPC validates type/length and trusted sender; OAuth open is denied until a Phase 6 allowlist; auth deep-link filtering retained.
 
 ### Unsafe external navigation
 
@@ -109,7 +109,7 @@ Renderer ──IPC──► preload/main
 
 - **Threat:** DB URLs, signing secrets, or service keys shipped in Electron/web bundles or committed to git.
 - **Planned mitigations:** Secrets only on backend; `.env` gitignored; `.env.example` placeholders only; CI secret scanning later.
-- **Current:** Strengthened `.gitignore`; no first-party backend secrets yet. Legacy Supabase publishable key remains in client source by prior design.
+- **Current:** Strengthened `.gitignore`; backend secrets stay server-side. Electron ships only a public API base URL. Supabase publishable key removed from runtime.
 
 ### Database compromise
 
@@ -121,12 +121,13 @@ Renderer ──IPC──► preload/main
 
 - **Threat:** Client forges XP/solved missions and syncs false progress; or overwrites another user's progress.
 - **Planned mitigations:** Authenticated user-scoped progress API; server rejects cross-user writes; consider server-side validation bounds; treat localStorage as non-authoritative cache.
-- **Current:** Local progress is fully client-controlled; cloud sync trusted the authenticated Supabase subject via RLS when available.
+- **Current:** Local progress remains a cache; authenticated `PUT /me/progress` stores server-side progress scoped to `req.auth.userId`. Startup sync barrier avoids overwriting server progress with pre-auth local events.
 
 ---
 
 ## RESIDUAL RISKS (HONEST)
 
-- Until the backend replaces Supabase, cloud authentication/sync remains unavailable and outside first-party control.
+- Refresh tokens in Electron userData are file-persisted but not OS-keychain-protected (Phase 6 upgrade planned).
 - Monolithic inline scripts limit CSP strength.
-- Desktop and web clients can always manipulate local progress offline; integrity guarantees apply to **server-stored** progress after Phase 4+.
+- Desktop and web clients can always manipulate local progress offline; integrity guarantees apply to **server-stored** progress.
+- Backend/API hosting is not deployed to Railway/Cloudflare/Vercel in this phase.
