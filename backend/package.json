@@ -1,0 +1,15 @@
+{
+  "name": "ghost-protocol-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ghost Protocol API scaffold (Phase 1 — no auth/DB wiring yet)",
+  "main": "src/app.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/app.js",
+    "test": "node --test tests/**/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
