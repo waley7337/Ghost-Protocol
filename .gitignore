@@ -46,3 +46,19 @@ coverage/
 tmp/
 temp/
 *.tmp
+
+# Vercel local / link state (never commit tokens)
+.vercel/
+
+# Electron userData / credential session patterns (if ever copied into the tree)
+**/userData/
+**/Ghost Protocol/
+ghost-auth-session.json
+**/ghost-auth-session.json
+**/Partitions/
+**/Cache/
+**/Code Cache/
+**/GPUCache/
+**/Session Storage/
+**/Local Storage/
+**/IndexedDB/

@@ -37,6 +37,18 @@ DevTools visibility is **not** a security boundary. Auth remains sound if a user
 
 Node primitives and filesystem APIs are not exposed. Token values are never logged.
 
+### Browser / web authentication (Phase 7)
+
+| Control | Behavior |
+|---------|----------|
+| Access token | Memory-only |
+| Refresh token | Memory-only (no `localStorage` / `sessionStorage` persistence) |
+| Public API URL | `window.GHOST_API_BASE_URL` / Electron `ghostDesktop.apiBaseUrl` only |
+| Server secrets in web/Vercel | **Forbidden** (`DATABASE_URL`, token secrets) |
+| CORS | Backend allowlists `FRONTEND_URL` origins |
+
+Closing a browser tab ends the web session. Stronger browser session strategies remain **PLANNED**.
+
 ### IPC allowlist
 
 | Channel | Purpose | Validation |

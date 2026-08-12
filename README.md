@@ -1,74 +1,172 @@
 # Ghost Protocol
 
-Ghost Protocol is an interactive cybersecurity learning platform packaged as a secure, cross-platform Electron application. The original dashboard, missions, quizzes, XP mechanics, styling, and interactions are preserved; the existing initialization screen provides the cinematic desktop startup sequence.
+Interactive cybersecurity learning platform delivered as a secure **Electron** desktop app and a **static web** client, backed by a first-party Node.js API and PostgreSQL.
+
+> Screenshots: _placeholder — add product screenshots here before public marketing._
+
+## Overview
+
+Ghost Protocol preserves the original dashboard, missions, quizzes, XP mechanics, styling, and cinematic initialization sequence. Authentication and cloud progress sync go through the Ghost Protocol backend (`/auth/*`, `/me/profile`, `/me/progress`). Supabase is **not** used at runtime (`supabase/` is legacy/historical only).
+
+## Architecture
+
+```
+┌──────────────────────────┐     ┌──────────────────────────┐
+│  Electron desktop app    │     │  Web (static SPA)        │
+│  Renderer → preload →    │     │  Browser (Vercel-ready)  │
+│  main (safeStorage)      │     │  Memory-only auth tokens │
+└────────────┬─────────────┘     └────────────┬─────────────┘
+             │ HTTPS JSON                     │ HTTPS JSON
+             └──────────────┬─────────────────┘
+                            ▼
+                 ┌──────────────────────┐
+                 │ Ghost Protocol API   │  (Railway-intended)
+                 │ Auth + profile +     │
+                 │ progress             │
+                 └──────────┬───────────┘
+                            ▼
+                     PostgreSQL
+```
+
+Neither the browser nor Electron talks to PostgreSQL directly. Server secrets (`DATABASE_URL`, `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET`) stay on the API host only.
+
+See `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, and `docs/THREAT_MODEL.md`.
+
+## Security highlights
+
+| Area | Status |
+|------|--------|
+| Electron `contextIsolation` / no Node in renderer / sandbox / `webSecurity` | **IMPLEMENTED** |
+| Narrow preload (`ghostDesktop.authSession` only for credentials) | **IMPLEMENTED** |
+| Electron refresh at rest via `safeStorage` (platform-dependent) | **IMPLEMENTED** |
+| Browser refresh persistence | **Memory-only** (no `localStorage` refresh) |
+| Access tokens | **Memory-only** on both platforms |
+| Backend Argon2id + JWT access + hashed refresh rotation | **IMPLEMENTED** |
+| CORS allowlist via `FRONTEND_URL` | **IMPLEMENTED** (browser) |
+| CSP (Electron main + web build meta) | **IMPLEMENTED** |
+| Google OAuth / password reset | **PLANNED** (UI visible; temporarily unavailable) |
+
+## Stack
+
+- **Desktop:** Electron 37, context-isolated renderer, electron-builder
+- **Web:** Static SPA (`index.html` + `assets/`), Vercel-ready output in `dist/web`
+- **API:** Node.js HTTP server under `backend/`
+- **DB:** PostgreSQL (local or Railway-intended)
+- **Client auth modules:** `src/api.js`, `src/auth.js`, `src/platform.js` → `assets/auth.bundle.js`
+
+## Status: IMPLEMENTED vs PLANNED
+
+| Item | Status |
+|------|--------|
+| Electron app + packaging scripts | **IMPLEMENTED** |
+| Backend auth + profile/progress API | **IMPLEMENTED** |
+| Electron ↔ backend wiring | **IMPLEMENTED** |
+| Electron credential hardening (Phase 6) | **IMPLEMENTED** |
+| Browser/web client parity (same UI, memory auth) | **IMPLEMENTED** (Phase 7) |
+| Web production build + `vercel.json` | **IMPLEMENTED** (config/readiness only) |
+| Private GitHub remote | **Phase 7** (when authenticated) |
+| Railway Postgres + API deploy | **PLANNED** (not deployed) |
+| Vercel production deploy | **PLANNED** (not deployed) |
+| Cloudflare DNS / WAF | **PLANNED** |
+| Google OAuth / password reset | **PLANNED** |
 
 ## Requirements
 
-- Node.js 22 or newer
-- npm 10 or newer
+- Node.js 22+
+- npm 10+
+- PostgreSQL for backend features
 
-## Install and run
+## Environment setup (placeholders only)
+
+### Backend (`backend/.env`)
+
+Copy `backend/.env.example` → `backend/.env` and replace placeholders:
 
 ```bash
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DATABASE
+ACCESS_TOKEN_SECRET=replace-with-long-random-access-secret-at-least-32-chars
+REFRESH_TOKEN_SECRET=replace-with-long-random-refresh-secret-at-least-32-chars
+FRONTEND_URL=http://127.0.0.1:4173
+```
+
+Never commit real values. Never put these in Vercel public env, Electron renderer bundles, or `assets/config.js`.
+
+### Clients (public only)
+
+```bash
+# Electron / local web — public API origin only
+export GHOST_API_BASE_URL=http://127.0.0.1:3000
+```
+
+For hosted web builds, set **public** `GHOST_API_BASE_URL` (HTTPS API origin) at build time. Do **not** set `DATABASE_URL` / token secrets in Vercel.
+
+## Local development
+
+### Backend
+
+```bash
+cd backend
 npm install
-cd backend && npm install && cp .env.example .env
-# configure DATABASE_URL, ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET
+cp .env.example .env   # then edit placeholders
 npm run db:migrate
 npm start
 ```
 
-In another terminal (repo root):
+### Electron
 
 ```bash
-export GHOST_API_BASE_URL=http://127.0.0.1:3000   # optional; this is the default
+npm install
+export GHOST_API_BASE_URL=http://127.0.0.1:3000   # optional; default
 npm start
 ```
 
-Progress is stored locally under the `ghost_protocol` local-storage key and synced to the backend after authentication.
+### Web (browser)
 
-## Authentication (Phase 5–6)
+```bash
+npm install
+export GHOST_API_BASE_URL=http://127.0.0.1:3000
+npm run build:web
+npm run web:dev          # serves dist/web on :4173
+```
 
-The desktop client talks to the Ghost Protocol backend API (`src/api.js` / `src/auth.js`):
+**Browser auth note:** refresh and access tokens stay in memory for the tab session. Closing the tab ends the session. Electron can persist refresh material via `safeStorage` when available. Progress may still use the existing `ghost_protocol` localStorage key as a non-authoritative cache.
 
-| UI action | API |
-|-----------|-----|
-| Create account | `POST /auth/register` (immediate session) |
-| Sign in | `POST /auth/login` |
-| Session restore | refresh → `GET /auth/me` → profile/progress |
-| Logout | `POST /auth/logout` + local clear |
-| Profile / progress | `GET/PUT /me/profile`, `GET/PUT /me/progress` |
-
-- Access tokens stay in memory.
-- Refresh tokens persist via Electron main-process `authSession` + `safeStorage` encryption at rest when available. If secure storage is unavailable, the app prefers re-login over plaintext persistence (PLATFORM-DEPENDENT OS backends; unit tests do not prove Keychain).
-- Google sign-in and password reset remain **visible but temporarily unavailable** (no Supabase; no backend yet). The `ghost-protocol://` deep-link architecture is retained for a later OAuth phase.
-- Supabase is **not** used at runtime. The `supabase/` folder is legacy/historical only.
-
-**Not deployed yet:** Railway, Vercel, Cloudflare.
-
-## Verify
+## Testing
 
 ```bash
 npm run lint
-npm test
+npm test                 # client + electron + web unit tests
 npm run auth:bundle
 npm run smoke:electron
 cd backend && npm test
 ```
 
-## Package
-
-Run the matching command natively on each release platform:
+## Build / packaging
 
 ```bash
+# Web (Vercel-ready static output → dist/web)
+GHOST_API_BASE_URL=https://api.example.com npm run build:web
+
+# Electron (run on each target OS)
 npm run build:mac
 npm run build:win
 npm run build:linux
 ```
 
-Artifacts are written to `release/`. macOS creates DMG and ZIP files, Windows creates NSIS installer, and Linux creates AppImage and Debian packages.
+Artifacts: web → `dist/web/`; desktop → `release/`. Public desktop distribution still requires platform signing credentials.
 
-Public distribution requires platform signing credentials: Apple Developer ID signing/notarization for macOS and an Authenticode certificate for Windows.
+## Deployment architecture (intent — not deployed in Phase 7)
 
-## Security
+```
+Internet → Cloudflare (planned) → Vercel static web (planned)
+                                → Railway API + Postgres (planned)
+Electron / browser ──HTTPS──► Railway API ──► Postgres
+```
 
-The renderer uses context isolation, disabled Node integration, Chromium sandboxing, locked navigation, blocked webviews, a minimal frozen preload bridge (`authSession` only for credentials), HTTPS-only external opens, and a restrictive Content Security Policy (`connect-src` allowlists the configured API base URL; no `unsafe-eval`). Production API base URLs must be HTTPS (loopback HTTP allowed for local development).
+- **Vercel:** static web only (`vercel.json`, `npm run build:web`). No production deploy in Phase 7.
+- **Railway:** backend + Postgres. See `docs/RAILWAY.md`.
+- **Docs:** `docs/VERCEL.md` for web readiness checklist.
+
+## License
+
+UNLICENSED / private.

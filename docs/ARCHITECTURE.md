@@ -1,6 +1,6 @@
 # Ghost Protocol Architecture
 
-Status: Phase 6 Electron security hardening complete (local). This document describes the **current** runtime system, what is **implemented**, and the **target** system. Items marked planned are not implemented yet.
+Status: Phase 7 web + Vercel readiness complete (local; no production deploy). This document describes the **current** runtime system, what is **implemented**, and the **target** system. Items marked planned are not implemented yet.
 
 Ghost Protocol is a single-user-scoped learning application (not multi-tenant). Private resources are owned by the authenticated user:
 
@@ -13,19 +13,22 @@ User
 
 ---
 
-## Current architecture (Phase 6)
+## Current architecture (Phase 7)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                     ELECTRON DESKTOP APP                         │
-│  Renderer (untrusted) → narrow preload → Main (privileged)       │
-│  Access token: memory only                                       │
-│  Refresh: safeStorage-encrypted file under userData (when avail) │
+│ ELECTRON DESKTOP APP                                              │
+│ Renderer → narrow preload → Main (safeStorage refresh)            │
+└───────────────────────────────┬──────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│ WEB STATIC SPA (Vercel-ready dist/web)                            │
+│ Same UI; access+refresh memory-only (no localStorage refresh)     │
 └───────────────────────────────┬──────────────────────────────────┘
                                 │ HTTP(S) JSON (Authorization: Bearer)
                                 ▼
                  ┌──────────────────────────────┐
                  │  GHOST PROTOCOL BACKEND API  │
+                 │  CORS allowlist FRONTEND_URL │
                  │  /auth/*  /me/profile        │
                  │  /me/progress                │
                  └──────────────┬───────────────┘
@@ -38,10 +41,12 @@ User
 
 | Item | Status |
 |------|--------|
-| Supabase runtime in Electron | **REMOVED / DEPRECATED** (`supabase/` LEGACY/HISTORICAL) |
+| Supabase runtime in Electron/web | **REMOVED / DEPRECATED** (`supabase/` LEGACY/HISTORICAL) |
 | Backend API | **IMPLEMENTED** |
-| Electron client → backend | **IMPLEMENTED** (Phase 5) |
+| Electron client → backend | **IMPLEMENTED** |
 | Electron credential hardening | **IMPLEMENTED** (Phase 6 — Electron `safeStorage`) |
+| Browser/web client → backend | **IMPLEMENTED** (Phase 7 — memory auth) |
+| Web production build / vercel.json | **IMPLEMENTED** (readiness only; **NOT DEPLOYED**) |
 | Railway / Vercel / Cloudflare deploy | **NOT DEPLOYED** |
 | Google OAuth | **NOT IMPLEMENTED** (UI visible; temporarily unavailable) |
 | Password reset | **NOT IMPLEMENTED** (UI visible; temporarily unavailable) |
@@ -135,18 +140,22 @@ Unchanged from Phase 5: backend is the only component with `DATABASE_URL` and si
 
 ---
 
-## Repository layout (Phase 6)
+## Repository layout (Phase 7)
 
 ```
 /
-├── docs/
-├── backend/
+├── docs/                 # ARCHITECTURE, SECURITY, THREAT_MODEL, RAILWAY, VERCEL
+├── backend/              # API (Railway-intended)
 ├── electron/             # main, preload, security helpers
-├── index.html
-├── src/                  # api.js + auth.js
+├── index.html            # shared UI (Electron + web)
+├── src/                  # api.js + auth.js + platform.js
+├── scripts/build-web.mjs # static web production build
+├── vercel.json
 ├── tests/client/
-├── tests/electron/       # UNIT Electron security tests (simulated safeStorage)
+├── tests/electron/
+├── tests/web/
 ├── assets/
+├── dist/web/             # build output (gitignored)
 └── supabase/             # LEGACY/HISTORICAL only
 ```
 
@@ -154,7 +163,8 @@ Unchanged from Phase 5: backend is the only component with `DATABASE_URL` and si
 
 ## Explicit non-goals (still true)
 
-- No Railway / Vercel / Cloudflare deployment in this phase.
+- No Railway / Vercel / Cloudflare **production** deployment in Phase 7.
 - No Google OAuth or password-reset backend.
 - No multi-tenant / company model.
 - Do not claim unit tests prove OS Keychain behavior.
+- Do not persist browser refresh tokens in localStorage.
