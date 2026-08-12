@@ -1,16 +1,33 @@
-# Ghost Protocol Backend (Phase 1 scaffold)
+# Ghost Protocol Backend
 
-This package is a **non-production** API skeleton.
+Phase 2 provides the PostgreSQL data foundation and health endpoints.
 
-- No authentication
-- No PostgreSQL connection
-- No ORM
-- Optional `GET /health` only
+## What is implemented
 
-It is **not** wired to the Electron app or web client yet. Root `npm start` still launches Electron exactly as before.
+- `pg` connection pool (server-side only)
+- SQL migrations for `users`, `sessions`, `profiles`, `user_progress`
+- Migration runner: `npm run db:migrate` / `npm run db:status`
+- `GET /health`
+- `GET /health/db` (returns only `{ "status": "ok" }` or `{ "status": "unavailable" }`)
+
+## What is not implemented
+
+- Authentication / sessions issuance
+- Profile or progress HTTP APIs
+- Wiring from Electron or the web client
+
+## Local setup
+
+1. Create a PostgreSQL database.
+2. Prefer a least-privilege application role (see `docs/SECURITY.md`).
+3. Copy `.env.example` to `.env` and set `DATABASE_URL` (never commit `.env`).
+4. Run migrations:
 
 ```bash
 cd backend
+npm run db:migrate
+npm run db:status
 npm start
-# GET http://localhost:3000/health
 ```
+
+Root Electron `npm start` is unchanged and does not use this backend yet.

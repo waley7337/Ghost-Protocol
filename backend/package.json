@@ -1,15 +1,20 @@
 {
   "name": "ghost-protocol-backend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Ghost Protocol API scaffold (Phase 1 — no auth/DB wiring yet)",
+  "description": "Ghost Protocol API — PostgreSQL data foundation (Phase 2)",
   "main": "src/app.js",
   "type": "commonjs",
   "scripts": {
     "start": "node src/app.js",
-    "test": "node --test tests/**/*.test.js"
+    "test": "node --test tests/**/*.test.js",
+    "db:migrate": "node src/db/migrate.js up",
+    "db:status": "node src/db/migrate.js status"
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "pg": "^8.23.0"
   }
 }

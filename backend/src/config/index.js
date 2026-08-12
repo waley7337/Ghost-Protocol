@@ -1,22 +1,46 @@
 'use strict';
 
 /**
- * Environment loading for the API scaffold.
- * Phase 1: read process.env only. No secret validation beyond basics.
- * Auth/DB wiring arrives in later phases.
+ * Server-side configuration.
+ * DATABASE_URL is never logged and must never be shipped to clients.
  */
 
-function loadConfig() {
-  const port = Number.parseInt(process.env.PORT || '3000', 10);
+class ConfigError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ConfigError';
+  }
+}
+
+function parsePort(value) {
+  const port = Number.parseInt(value || '3000', 10);
+  return Number.isFinite(port) && port > 0 ? port : 3000;
+}
+
+function loadConfig(env = process.env) {
+  const nodeEnv = env.NODE_ENV || 'development';
+  const databaseUrl = env.DATABASE_URL || null;
 
   return Object.freeze({
-    nodeEnv: process.env.NODE_ENV || 'development',
-    port: Number.isFinite(port) ? port : 3000,
-    // Placeholders recognized by .env.example — unused until later phases:
-    databaseUrl: process.env.DATABASE_URL || null,
-    frontendUrl: process.env.FRONTEND_URL || null,
-    apiPublicUrl: process.env.API_PUBLIC_URL || null
+    nodeEnv,
+    port: parsePort(env.PORT),
+    databaseUrl,
+    frontendUrl: env.FRONTEND_URL || null,
+    apiPublicUrl: env.API_PUBLIC_URL || null,
+    databaseSsl: env.DATABASE_SSL || null,
+    databaseSslRejectUnauthorized: env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false'
   });
 }
 
-module.exports = { loadConfig };
+function requireDatabaseUrl(config) {
+  if (!config.databaseUrl || typeof config.databaseUrl !== 'string' || !config.databaseUrl.trim()) {
+    throw new ConfigError('DATABASE_URL is required for database operations');
+  }
+  return config.databaseUrl.trim();
+}
+
+module.exports = {
+  ConfigError,
+  loadConfig,
+  requireDatabaseUrl
+};

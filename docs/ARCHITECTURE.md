@@ -1,6 +1,6 @@
 # Ghost Protocol Architecture
 
-Status: Phase 1 foundation. This document describes the **current** system and the **target** system. Items marked target/planned are not implemented yet.
+Status: Phase 2 data foundation in progress. This document describes the **current** runtime system, what Phase 2 has **implemented** in `backend/`, and the **target** system. Items marked planned are not implemented yet.
 
 Ghost Protocol is a single-user-scoped learning application (not multi-tenant). Private resources are owned by the authenticated user:
 
@@ -30,7 +30,18 @@ User
                  └──────────────────────────────┘
 ```
 
-Today there is **no** first-party backend API, **no** Vercel web deploy configuration, and **no** Cloudflare configuration in this repository. The Electron renderer talks directly to Supabase (when reachable). That pattern will be replaced.
+The Electron desktop app still talks directly to Supabase (when reachable). That pattern will be replaced in later phases.
+
+### Phase 2 backend (implemented, not wired to clients)
+
+The `backend/` package now includes:
+
+- PostgreSQL connection pool via `pg` (server-side only; `DATABASE_URL` from environment)
+- Deterministic SQL migrations for `users`, `sessions`, `profiles`, `user_progress`
+- Migration runner (`npm run db:migrate`, `npm run db:status`)
+- `GET /health` and `GET /health/db` (db health returns only ok/unavailable)
+
+There is still **no** authentication API, **no** profile/progress API, **no** Vercel/Cloudflare production wiring, and **no** Electron/web client connection to this backend.
 
 ---
 
@@ -136,9 +147,9 @@ Desktop packaging must continue to enforce context isolation, disabled `nodeInte
 ### Database trust boundary
 
 - PostgreSQL stores users, sessions, profiles, and progress.
-- Access should use least-privilege database roles (planned).
-- Foreign keys and ownership constraints enforce integrity.
-- Clients never obtain direct database credentials.
+- Phase 2 schema enforces foreign keys and `ON DELETE CASCADE` ownership from `users` to child tables.
+- Least-privilege database roles are documented and recommended (see `docs/SECURITY.md`); enforcement depends on deployment.
+- Clients never obtain direct database credentials. `DATABASE_URL` exists only in backend server environment.
 
 ### Cloudflare edge boundary
 
@@ -153,40 +164,41 @@ Desktop packaging must continue to enforce context isolation, disabled `nodeInte
 
 ### Backend API role
 
-- Authentication and session lifecycle.
-- Authorization / user-owned resource isolation.
-- Profile and progress APIs scoped to the authenticated user.
-- Validation, rate limiting, security headers, audit/security logging.
+- **Implemented (Phase 2):** process health; optional DB connectivity probe; migration tooling; parameterized SQL access layer.
+- **Planned:** authentication and session lifecycle; authorization / user-owned resource isolation; profile and progress APIs; validation; rate limiting; production CORS; audit/security logging.
 
 ### PostgreSQL role
 
-- Durable storage for `User`, `Session`, `Profile`, and `User Progress`.
-- Source of truth for cloud-synced progress once the backend is online.
+- Durable storage for `User`, `Session`, `Profile`, and `User Progress` (schema implemented in Phase 2 migrations).
+- Source of truth for cloud-synced progress once auth + APIs are online (later phases).
 - Local `localStorage` on clients may remain a cache/offline convenience, not an authorization authority.
 
 ---
 
-## Repository layout (Phase 1)
+## Repository layout (Phase 2)
 
 ```
 /
 ├── docs/                 # Architecture and security documentation
-├── backend/              # API scaffold (not wired to Electron/web yet)
-├── electron/             # Existing desktop shell (unchanged in Phase 1)
-├── index.html            # Existing UI (unchanged in Phase 1)
-├── src/                  # Existing auth source (unchanged in Phase 1)
-├── assets/               # Existing static assets (unchanged in Phase 1)
-└── supabase/             # Legacy schema notes (retained until migration)
+├── backend/              # PostgreSQL foundation + health endpoints (not wired to clients)
+│   ├── migrations/       # First-party SQL migrations
+│   ├── src/db/           # Pool, query helper, migration runner
+│   └── tests/
+├── electron/             # Existing desktop shell (unchanged)
+├── index.html            # Existing UI (unchanged)
+├── src/                  # Existing auth source (unchanged)
+├── assets/               # Existing static assets (unchanged)
+└── supabase/             # Legacy schema notes (retained until client migration)
 ```
 
-Frontend relocation into `/frontend` is deferred until a later phase so `npm start` remains unchanged.
+Frontend relocation into `/frontend` is deferred so root `npm start` remains unchanged.
 
 ---
 
-## Explicit non-goals (Phase 1)
+## Explicit non-goals (still true after Phase 2)
 
 - No authentication implementation in the new backend.
-- No PostgreSQL connection.
+- No client wiring to the new backend.
 - No removal of Supabase client code.
 - No Electron or UI changes.
 - No multi-tenant / company model.

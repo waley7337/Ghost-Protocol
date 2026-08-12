@@ -85,7 +85,7 @@ Renderer ──IPC──► preload/main
 
 - **Threat:** Client supplies another user's id and reads/writes their profile or progress.
 - **Planned mitigations:** Server-derived identity; every private query scoped to authenticated user; automated cross-user isolation tests.
-- **Current:** Legacy client sends `user_id` in upserts; historical mitigation was Supabase RLS. Target architecture must not rely on client honesty.
+- **Current:** Legacy client sends `user_id` in upserts; historical mitigation was Supabase RLS. Phase 2 schema uses FK ownership (`user_id` → `users.id`) but **application authorization is not implemented yet**.
 
 ### Injection
 

@@ -10,7 +10,9 @@ Ghost Protocol is **single-user-scoped** (not multi-tenant). Authorization is ba
 
 ## CURRENTLY IMPLEMENTED
 
-Evidence is limited to the existing Electron desktop application and client code in the repository baseline.
+### Electron / legacy client controls
+
+Evidence below includes the existing Electron desktop application and client code in the repository baseline, plus Phase 2 backend data-foundation controls that do **not** yet include authentication.
 
 ### Electron renderer process hardening
 
@@ -65,11 +67,45 @@ The retained SQL migration defines row-level security policies intended to restr
 - macOS `hardenedRuntime: true` in electron-builder config  
   (public distribution signing/notarization credentials are not configured in-repo).
 
+### Backend PostgreSQL foundation (Phase 2)
+
+- Official `pg` driver only (no ORM)
+- `DATABASE_URL` read from server environment/config only
+- Connection pool with production-aware TLS options
+- Parameterized query helper; database errors sanitized (no connection strings/credentials in thrown API-facing errors)
+- SQL migrations for `users`, `sessions`, `profiles`, `user_progress` with foreign keys and ownership cascade
+- `sessions.refresh_token_hash` column prepared for hashed session credentials (plaintext refresh tokens are not stored by schema design)
+- `GET /health/db` returns only `{ "status": "ok" }` or `{ "status": "unavailable" }`
+
+**Non-claim:** Creating a `sessions` table does **not** mean session authentication, rotation, or revocation logic is implemented.
+
+### PostgreSQL privilege model (documented intent)
+
+Ideal separation:
+
+```
+MIGRATION ROLE
+    │
+    └── schema modification (DDL), owns migrations
+
+APPLICATION ROLE
+    │
+    └── required DML only on users/sessions/profiles/user_progress
+```
+
+The runtime API role must **not** be a PostgreSQL superuser, must **not** be the database owner when avoidable, and must **not** be the migration administrator.
+
+Practical hosted fallback: many managed PostgreSQL providers issue a single powerful user. In that case:
+
+1. Prefer creating a dedicated app role with table DML grants only after migrations.
+2. If the provider cannot separate roles, document the residual risk and restrict network access to the database (private network / allowlisted backend only).
+3. Never embed the database URL in Electron or web clients regardless of role model.
+
 ---
 
 ## PLANNED
 
-None of the following backend/edge controls are implemented in Phase 1.
+The following controls remain unimplemented.
 
 ### Authentication (planned)
 
@@ -98,13 +134,11 @@ None of the following backend/edge controls are implemented in Phase 1.
 - Security headers
 - Audit / security logging
 
-### Database (planned)
+### Database (planned / remaining)
 
-- First-party PostgreSQL with migrations
-- Foreign keys, unique constraints, indexes
-- User ownership constraints
-- Least-privilege database access roles
-- No direct client → PostgreSQL connectivity
+- Operational enforcement of least-privilege roles in each hosting environment
+- Automated integration testing against CI PostgreSQL
+- No direct client → PostgreSQL connectivity remains a hard rule (clients still use legacy Supabase until later phases)
 
 ### Clients (planned hardening / migration)
 
@@ -131,6 +165,7 @@ None of the following backend/edge controls are implemented in Phase 1.
 
 ## Explicit non-claims
 
-- Phase 1 backend scaffolding does **not** provide authentication or authorization.
-- Presence of `backend/` directories does **not** mean the API is production-ready.
+- Phase 2 does **not** provide authentication, authorization, or session issuance.
+- Presence of `sessions` / `password_hash` columns does **not** mean hashing, login, or token handling is implemented.
+- Presence of `backend/` does **not** mean the API is production-ready or connected to Electron/web.
 - Legacy Supabase publishable keys in client bundles are not database passwords; they also do not satisfy the target architecture (clients must not talk to the data plane directly).
