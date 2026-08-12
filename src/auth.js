@@ -28,7 +28,9 @@ function friendly(error) {
     weak_password: 'Password does not meet requirements.',
     no_refresh_token: 'Session expired. Please sign in again.',
     unauthorized: 'Session expired. Please sign in again.',
-    not_authenticated: 'Please sign in to continue.'
+    not_authenticated: 'Please sign in to continue.',
+    SESSION_UNAVAILABLE: 'Secure session storage is unavailable. Please sign in again.',
+    SESSION_STORAGE_FAILED: 'Unable to store your session securely. Please try again.'
   };
   if (code && map[code]) return map[code];
   if (error instanceof ApiError && error.message) return error.message;

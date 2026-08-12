@@ -2,17 +2,13 @@
 
 This document describes security controls for Ghost Protocol.
 
-**Important:** Planned controls are design intent only. Do not treat planned items as implemented.
+**Important:** Planned controls are design intent only. Do not treat planned items as implemented. Platform-dependent claims are labeled honestly.
 
 Ghost Protocol is **single-user-scoped** (not multi-tenant). Authorization is based on the authenticated user owning their sessions, profile, and progress.
 
 ---
 
 ## CURRENTLY IMPLEMENTED
-
-### Electron / legacy client controls
-
-Evidence below includes the existing Electron desktop application and client code in the repository baseline, plus Phase 2 backend data-foundation controls that do **not** yet include authentication.
 
 ### Electron renderer process hardening
 
@@ -23,167 +19,121 @@ Evidence below includes the existing Electron desktop application and client cod
 | `sandbox` | `true` |
 | `webSecurity` | `true` |
 | `allowRunningInsecureContent` | `false` |
+| `webviewTag` | `false` |
+| `nodeIntegrationInWorker` | `false` |
+| `nodeIntegrationInSubFrames` | `false` |
+| `experimentalFeatures` | `false` |
 | Production DevTools | Disabled when packaged (`devTools: !app.isPackaged`) |
+
+DevTools visibility is **not** a security boundary. Auth remains sound if a user can inspect the renderer.
 
 ### Minimal preload surface
 
 `electron/preload.cjs` exposes only a frozen `window.ghostDesktop` object with:
 
 - `apiBaseUrl` (public API base; sync, config-driven)
-- `beginOAuth(url)` / `onAuthCallback(callback)` (deep-link architecture retained; OAuth provider not configured)
-- `getRefreshToken` / `setRefreshToken` / `clearRefreshToken` (opaque string IPC only)
+- `authSession.store` / `authSession.load` / `authSession.clear` (opaque string IPC only)
+- `beginOAuth(url)` / `onAuthCallback(callback)` (deep-link architecture retained; OAuth **not** configured — launches rejected)
 
-Node primitives and filesystem APIs are not exposed to the renderer. Token values are never logged.
-### Navigation and window restrictions
+Node primitives and filesystem APIs are not exposed. Token values are never logged.
 
-- Off-document navigation is blocked (`will-navigate`).
-- `window.open` / new windows are denied; `https:` URLs may be opened via `shell.openExternal`.
-- Webview attachment is prevented.
+### IPC allowlist
+
+| Channel | Purpose | Validation |
+|---------|---------|------------|
+| `auth:get-api-base-sync` | Public API base | Sync config only |
+| `auth-session:store` | Persist refresh | Trusted sender; type/length; safeStorage required |
+| `auth-session:load` | Load refresh | Trusted sender; decrypt only |
+| `auth-session:clear` | Clear refresh | Trusted sender |
+| `auth:open-oauth` | Future OAuth | Trusted sender; HTTPS only; **always rejects** (not configured) |
+| `auth:callback` | Deep-link event | Main → renderer after strict URL parse |
+
+Semantic credential errors only: `SESSION_UNAVAILABLE`, `SESSION_STORAGE_FAILED` (no tokens, paths, or ciphertext in messages).
+
+### Refresh credential storage (Phase 6)
+
+| Property | Status |
+|----------|--------|
+| Access token storage | **IMPLEMENTED** — renderer memory only |
+| Refresh persistence path | Fixed file under Electron `userData` (renderer cannot choose path) |
+| At-rest protection | **IMPLEMENTED** — encrypt with Electron `safeStorage` in **main** before write |
+| Plaintext persistent fallback | **NONE** — if secure storage unavailable, prefer non-persistent / re-login |
+| Legacy Phase 5 plaintext file | Deleted on sight; migrated to ciphertext only when `safeStorage` is available |
+| macOS | **PLATFORM-DEPENDENT** — Electron documents Keychain-backed key material when encryption is available |
+| Windows | **PLATFORM-DEPENDENT** — Electron documents DPAPI-backed protection |
+| Linux | **PLATFORM-DEPENDENT** — OS secret backends when selected; `basic_text` treated as **unavailable** for persistence |
+| Unit tests prove OS Keychain | **NO** — tests use simulated `safeStorage` |
+
+### Navigation and external URL policy
+
+- Off-document navigation denied (`will-navigate` + `shouldAllowInAppNavigation`).
+- `window.open` always `{ action: 'deny' }`; allowlisted `https:` URLs may open via `shell.openExternal` after validation (no userinfo; scheme must be `https:`).
+- `javascript:`, `data:`, `file:` external opens denied.
+- Webview attachment prevented globally.
 
 ### Custom protocol validation
 
 - Scheme: `ghost-protocol`
-- Auth callbacks accepted only when protocol and hostname match expected auth callback shape before forwarding to the renderer.
-- OAuth launch IPC requires `https:` but **rejects all launches** until a Phase 6 provider allowlist is configured (Google OAuth not implemented).
+- Accepted shape only: `ghost-protocol://auth/callback` (+ optional query), max length enforced
+- Rejects wrong host/path, userinfo, ports, malformed URLs
+- Forwarding a callback **does not** authenticate the user
+- Google OAuth remains **NOT IMPLEMENTED** (protocol prepared but dormant)
 
 ### Content Security Policy (Electron session)
 
-A CSP header is injected for the desktop session. It restricts default sources and limits `connect-src` to `'self'` plus the configured Ghost Protocol API base URL (default local API). Supabase hosts are **not** in the allowlist.  
-Note: `script-src` currently allows `'unsafe-inline'` because the UI is a monolithic inline script in `index.html`.
+Injected CSP (no `unsafe-eval`):
 
-### Client-side session handling (Phase 5 backend API)
+- `default-src 'self'`
+- `script-src 'self' 'unsafe-inline'` — required for monolithic `index.html` inline scripts
+- `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`
+- `font-src 'self' https://fonts.gstatic.com`
+- `img-src 'self' data: https:`
+- `connect-src` — `'self'` + configured API base (plus loopback aliases when API is local)
+- `object-src` / `frame-src` / `frame-ancestors` / `worker-src` / `child-src` — `'none'`
+- `base-uri` / `form-action` — `'none'`
 
-- Access tokens: **in-memory only** in the renderer (not written to localStorage).
-- Refresh tokens: persisted via Electron main-process bridge to a `userData` file (mode `0600`). **Not** OS keychain yet (PLANNED Phase 6). Non-Electron fallback is memory-only.
-- Single in-flight refresh promise coordinates concurrent 401s (avoids refresh-family reuse revocation races).
-- Session restore: stored refresh → `POST /auth/refresh` → `GET /auth/me` → profile/progress; otherwise auth gate (no stale local impersonation).
-- Logout: best-effort `POST /auth/logout`, then always clear local tokens.
+### API transport
 
-### Legacy database policies (Supabase migration file)
+- Production / remote API URLs must be `https:`
+- Loopback `http://127.0.0.1` / `http://localhost` allowed for explicit local development
+- Remote `http://` fails closed at Electron startup
 
-The retained SQL under `supabase/` is **LEGACY/HISTORICAL**. It is not used by the Electron runtime. Backend authorization uses `req.auth.userId`, not Supabase RLS.
+### Client-side session handling
+
+- Single in-flight refresh promise coordinates concurrent 401s
+- Session restore: encrypted refresh → `POST /auth/refresh` → `GET /auth/me` → profile/progress
+- Logout: best-effort `POST /auth/logout`, then always clear local tokens
+
 ### Packaging
 
 - `asar: true`
 - macOS `hardenedRuntime: true` in electron-builder config  
   (public distribution signing/notarization credentials are not configured in-repo).
 
-### Backend PostgreSQL foundation (Phase 2)
+### Backend (Phases 2–4) — summary
 
-- Official `pg` driver only (no ORM)
-- `DATABASE_URL` read from server environment/config only
-- Connection pool with explicit TLS controls (production defaults to TLS; certificate validation remains enabled by default)
-- Optional `DATABASE_SSL_CA` for trusting a provided CA without disabling validation
-- Parameterized query helper; database errors sanitized (no connection strings/credentials in thrown API-facing errors)
-- SQL migrations for `users`, `sessions`, `profiles`, `user_progress` with foreign keys and ownership cascade
-- `sessions.refresh_token_hash` column prepared for hashed session credentials (plaintext refresh tokens are not stored by schema design)
-- `GET /health/db` returns only `{ "status": "ok" }` or `{ "status": "unavailable" }`
-- Railway process readiness: listen on injected `PORT`, bind `0.0.0.0`, fail closed on invalid production config, close pool on shutdown
+- Argon2id passwords; JWT access; hashed refresh + family reuse revocation
+- `/me/*` ownership from `req.auth.userId` only
+- Parameterized SQL; sanitized errors; production config gates
+- See prior sections / backend README for endpoint detail
 
-**Non-claim:** Creating a `sessions` table does **not** mean session authentication, rotation, or revocation logic is implemented.  
-**Non-claim:** Railway readiness docs/code do **not** mean a Railway project has been deployed.
+### Legacy database policies (Supabase migration file)
 
-### Backend authentication foundation (Phase 3)
-
-- Argon2id password hashing (`argon2` library)
-- `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`
-- Short-lived JWT access tokens (`jose`, HS256) with explicit issuer, audience, and expiration checks
-- Refresh tokens stored only as HMAC-SHA256 hashes in `sessions.refresh_token_hash`
-- Refresh-token rotation with `family_id` / `replaced_by_session_id` linkage
-- Reuse of a replaced refresh credential revokes the entire refresh-token family, then fails generically
-- Rotation uses PostgreSQL transactions + `SELECT ... FOR UPDATE` (and one-active-session-per-family unique index)
-- Logout revokes the current session only (does not wipe unrelated login families)
-- Central `requireAuth` middleware derives `req.auth.userId` from verified access tokens only
-- Safe auth error responses (no password hashes, tokens, SQL, or stack traces)
-- In-process rate limiting on auth endpoints; does not trust `X-Forwarded-For` unless `TRUST_PROXY=true`
-- Production startup requires `ACCESS_TOKEN_SECRET` and `REFRESH_TOKEN_SECRET` (≥32 chars)
-
-**Non-claim:** Google OAuth, password reset emails, and distributed/edge rate limits are **not** implemented.  
-**Non-claim:** Railway/Vercel/Cloudflare are **not** deployed from this phase.
-
-### User-scoped profile + progress API (Phase 4) + client wiring (Phase 5)
-
-- `GET /me/profile`, `PUT /me/profile`
-- `GET /me/progress`, `PUT /me/progress`
-- **CLIENT OWNERSHIP IDENTIFIERS ARE NEVER AUTHORITATIVE.** All ownership uses `req.auth.userId` from verified access tokens.
-- Profile field allowlist: `name`, `avatarUrl`
-- Progress payload validation for GhostProgress shape (types, bounds, size)
-- Parameterized SQL with `WHERE user_id = $authenticatedUserId`
-- `GET /me/progress` returns `404` / `progress_not_found` when no server row exists
-- Electron client hydrates server progress when present; otherwise uploads local snapshot. Startup sync barrier prevents pre-hydrate uploads from overwriting server progress.
-### PostgreSQL privilege model (documented intent)
-
-Ideal separation:
-
-```
-MIGRATION ROLE
-    │
-    └── schema modification (DDL), owns migrations
-
-APPLICATION ROLE
-    │
-    └── required DML only on users/sessions/profiles/user_progress
-```
-
-The runtime API role must **not** be a PostgreSQL superuser, must **not** be the database owner when avoidable, and must **not** be the migration administrator.
-
-Practical hosted fallback: many managed PostgreSQL providers issue a single powerful user. In that case:
-
-1. Prefer creating a dedicated app role with table DML grants only after migrations.
-2. If the provider cannot separate roles, document the residual risk and restrict network access to the database (private network / allowlisted backend only).
-3. Never embed the database URL in Electron or web clients regardless of role model.
+The retained SQL under `supabase/` is **LEGACY/HISTORICAL**. It is not used by the Electron runtime.
 
 ---
 
 ## PLANNED
 
-The following controls remain unimplemented.
-
-### Authentication (planned / remaining)
-
 - Password reset with safe, time-limited tokens
-- Google OAuth (desktop deep-link + web redirect) — UI currently hidden
+- Google OAuth (desktop deep-link + web redirect)
 - Email verification workflow
 - Distributed / Cloudflare edge rate limiting and bot protections
-- OS keychain (or equivalent) for refresh-token persistence
-
-### Authorization (planned / remaining)
-
 - Broader API surfaces beyond `/me/*` as features grow
-- Optional CI PostgreSQL cross-user isolation suite (unit isolation tests already cover memory pool)
-
-### API hardening (planned)
-
-- Distributed / edge rate limiting
-- Strict production CORS
-- Security headers
-- Audit / security logging
-- Broader input validation beyond auth + profile/progress
-
-### Database (planned / remaining)
-
-- Operational enforcement of least-privilege roles in each hosting environment
-- Automated integration testing against CI PostgreSQL
-- No direct client → PostgreSQL connectivity remains a hard rule
-
-### Clients (planned hardening)
-
-- Upgrade refresh persistence from userData file to OS keychain
-- Add default-deny permission request handling
-- Tighten external URL allowlisting where practical
 - Web CSP via hosting headers (Vercel / Cloudflare)
-- Production API URL / packaging for hosted backends
-### Edge / production (planned)
-
-- Cloudflare DNS, TLS, WAF, DDoS protection
-- Edge rate-limit strategy
-- Origin protection strategy (documented and applied in production phases)
-
-### Verification (planned)
-
-- Authentication, session, authorization/ownership, and validation tests
-- Electron security configuration checks where practical
-- CI: lint, tests, build, security-sensitive checks
+- Railway / Vercel / Cloudflare production deployment
+- Reduce `'unsafe-inline'` when the learning UI is no longer a monolithic inline script
+- Optional CI PostgreSQL cross-user isolation suite
 
 ---
 
@@ -191,6 +141,7 @@ The following controls remain unimplemented.
 
 - Presence of auth endpoints / local client wiring does **not** mean production is deployed on Railway.
 - Supabase runtime is removed from the Electron client; `supabase/` SQL remains historical only.
-- Refresh persistence uses a main-process userData file, **not** OS keychain.
+- Unit tests with mocked `safeStorage` do **not** prove OS Keychain/DPAPI behavior.
 - Google OAuth and password reset are **not** implemented.
 - In-process rate limiting is a foundation, not a complete abuse-prevention system.
+- Hiding DevTools is **not** a security boundary.

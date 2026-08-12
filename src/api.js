@@ -1,10 +1,10 @@
 /**
- * Ghost Protocol API client (Phase 5).
+ * Ghost Protocol API client (Phase 5 + Phase 6 storage bridge).
  * Public config only — never ships DATABASE_URL or server secrets.
  *
  * Access tokens: in-memory only (not persisted).
- * Refresh tokens: Electron main-process bridge when available; otherwise
- * in-memory only (OS keychain persistence planned for Phase 6).
+ * Refresh tokens: Electron main-process authSession bridge (safeStorage-encrypted
+ * at rest when available). Non-Electron fallback is memory-only.
  */
 
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:3000';
@@ -349,23 +349,52 @@ export function createApiClient(options = {}) {
   };
 }
 
+function mapSessionBridgeError(error) {
+  const code = error?.code || error?.message;
+  if (code === 'SESSION_UNAVAILABLE' || code === 'SESSION_STORAGE_FAILED') {
+    return new ApiError('Secure session storage unavailable', {
+      status: 0,
+      code
+    });
+  }
+  return error;
+}
+
 function createDefaultTokenStorage() {
   const desktop = globalThis.ghostDesktop;
-  if (desktop && typeof desktop.getRefreshToken === 'function') {
+  const authSession = desktop?.authSession;
+  if (
+    authSession &&
+    typeof authSession.load === 'function' &&
+    typeof authSession.store === 'function' &&
+    typeof authSession.clear === 'function'
+  ) {
     return {
       async getRefreshToken() {
-        const value = await desktop.getRefreshToken();
-        return typeof value === 'string' && value ? value : null;
+        try {
+          const value = await authSession.load();
+          return typeof value === 'string' && value ? value : null;
+        } catch (error) {
+          throw mapSessionBridgeError(error);
+        }
       },
       async setRefreshToken(token) {
-        if (typeof token !== 'string' || !token) {
-          await desktop.clearRefreshToken();
-          return;
+        try {
+          if (typeof token !== 'string' || !token) {
+            await authSession.clear();
+            return;
+          }
+          await authSession.store(token);
+        } catch (error) {
+          throw mapSessionBridgeError(error);
         }
-        await desktop.setRefreshToken(token);
       },
       async clearRefreshToken() {
-        await desktop.clearRefreshToken();
+        try {
+          await authSession.clear();
+        } catch (error) {
+          throw mapSessionBridgeError(error);
+        }
       }
     };
   }

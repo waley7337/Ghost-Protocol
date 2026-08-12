@@ -1,6 +1,6 @@
 # Ghost Protocol Backend
 
-Phase 5: PostgreSQL persistence, authentication, user-scoped profile/progress APIs, and Electron client wiring to this API.
+Phase 6 companion: PostgreSQL persistence, authentication, user-scoped profile/progress APIs, and Electron client wiring with hardened desktop credential storage.
 
 ## Implemented
 
@@ -18,6 +18,7 @@ Phase 5: PostgreSQL persistence, authentication, user-scoped profile/progress AP
 - `GET /health`, `GET /health/db`
 - Railway-oriented process readiness (`PORT`, production config gate, graceful shutdown)
 - Electron desktop client calls these endpoints (see root `src/api.js` / `src/auth.js`)
+- Desktop refresh persistence uses Electron `safeStorage` via main-process `authSession` (see root `docs/SECURITY.md`)
 
 ## Ownership rule
 
@@ -28,7 +29,6 @@ Phase 5: PostgreSQL persistence, authentication, user-scoped profile/progress AP
 
 - Google OAuth / password reset
 - Railway / Cloudflare / Vercel deployment
-- OS keychain refresh storage on the desktop client (userData IPC bridge is in place)
 
 ## Local setup
 
@@ -49,6 +49,8 @@ From the repo root, run the Electron app against that API:
 export GHOST_API_BASE_URL=http://127.0.0.1:3000
 npm start
 ```
+
+Packaged/production Electron builds must use an `https:` API base URL (loopback HTTP remains allowed for local development only).
 
 ## Tests
 

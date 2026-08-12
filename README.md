@@ -26,7 +26,7 @@ npm start
 
 Progress is stored locally under the `ghost_protocol` local-storage key and synced to the backend after authentication.
 
-## Authentication (Phase 5)
+## Authentication (Phase 5–6)
 
 The desktop client talks to the Ghost Protocol backend API (`src/api.js` / `src/auth.js`):
 
@@ -39,8 +39,8 @@ The desktop client talks to the Ghost Protocol backend API (`src/api.js` / `src/
 | Profile / progress | `GET/PUT /me/profile`, `GET/PUT /me/progress` |
 
 - Access tokens stay in memory.
-- Refresh tokens persist via the Electron main-process bridge (userData file). OS keychain upgrade is planned.
-- Google sign-in and password reset are temporarily unavailable (UI hidden). The `ghost-protocol://` deep-link architecture is retained for a later OAuth phase.
+- Refresh tokens persist via Electron main-process `authSession` + `safeStorage` encryption at rest when available. If secure storage is unavailable, the app prefers re-login over plaintext persistence (PLATFORM-DEPENDENT OS backends; unit tests do not prove Keychain).
+- Google sign-in and password reset remain **visible but temporarily unavailable** (no Supabase; no backend yet). The `ghost-protocol://` deep-link architecture is retained for a later OAuth phase.
 - Supabase is **not** used at runtime. The `supabase/` folder is legacy/historical only.
 
 **Not deployed yet:** Railway, Vercel, Cloudflare.
@@ -51,6 +51,7 @@ The desktop client talks to the Ghost Protocol backend API (`src/api.js` / `src/
 npm run lint
 npm test
 npm run auth:bundle
+npm run smoke:electron
 cd backend && npm test
 ```
 
@@ -64,10 +65,10 @@ npm run build:win
 npm run build:linux
 ```
 
-Artifacts are written to `release/`. macOS creates DMG and ZIP files, Windows creates an NSIS installer, and Linux creates AppImage and Debian packages.
+Artifacts are written to `release/`. macOS creates DMG and ZIP files, Windows creates NSIS installer, and Linux creates AppImage and Debian packages.
 
 Public distribution requires platform signing credentials: Apple Developer ID signing/notarization for macOS and an Authenticode certificate for Windows.
 
 ## Security
 
-The renderer uses context isolation, disabled Node integration, Chromium sandboxing, locked navigation, blocked webviews, a minimal frozen preload bridge, and a restrictive Content Security Policy (`connect-src` allowlists the configured API base URL only).
+The renderer uses context isolation, disabled Node integration, Chromium sandboxing, locked navigation, blocked webviews, a minimal frozen preload bridge (`authSession` only for credentials), HTTPS-only external opens, and a restrictive Content Security Policy (`connect-src` allowlists the configured API base URL; no `unsafe-eval`). Production API base URLs must be HTTPS (loopback HTTP allowed for local development).

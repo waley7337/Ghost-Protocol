@@ -1,6 +1,6 @@
 # Ghost Protocol Threat Model
 
-Status: Phase 1 planning document. Mitigations labeled **planned** are not implemented yet unless also listed under current Electron controls in `SECURITY.md`.
+Status: Phase 6 Electron hardening reflected. Mitigations labeled **planned** are not implemented yet unless also listed under current controls in `SECURITY.md`.
 
 Scope: single-user-scoped Ghost Protocol (User → Session / Profile / Progress). No company/tenant isolation model.
 
@@ -60,8 +60,8 @@ Renderer ──IPC──► preload/main
 ### Session theft
 
 - **Threat:** Stolen access tokens/cookies used by an attacker.
-- **Planned mitigations:** Secure client storage choices when wiring web/Electron; short TTLs tuned for UX.
-- **Current:** Short-lived JWT access tokens; refresh rotation; logout revocation; TLS required in production DB path.
+- **Current:** Short-lived JWT access tokens (memory-only in renderer); refresh rotation; logout revocation; refresh at rest encrypted via Electron `safeStorage` when available (PLATFORM-DEPENDENT); TLS required in production DB path.
+- **Planned mitigations:** Short TTLs tuned for UX; web secure storage choices when wiring hosted web client.
 
 ### Refresh-token reuse
 
@@ -96,14 +96,14 @@ Renderer ──IPC──► preload/main
 ### Malicious IPC input
 
 - **Threat:** Compromised/rogue renderer invokes preload/main with dangerous URLs or payloads.
-- **Planned mitigations:** Keep IPC minimal; validate types/URLs in main; deny unexpected channels; sender checks where practical.
-- **Current:** Refresh-token IPC validates type/length and trusted sender; OAuth open is denied until a Phase 6 allowlist; auth deep-link filtering retained.
+- **Current (Phase 6):** Explicit IPC allowlist; trusted-sender checks; typed/length-limited credential IPC; semantic `SESSION_*` errors; OAuth open denied (not configured); strict auth deep-link parsing.
+- **Planned:** Keep IPC minimal as features grow; deny unexpected channels.
 
 ### Unsafe external navigation
 
 - **Threat:** App opens malicious external URLs or navigates renderer to attacker content.
-- **Planned mitigations:** Restrict `openExternal` allowlists; keep navigation locks; block webviews.
-- **Current:** Navigation locked; any `https:` may be opened externally from window-open handler (tighten later).
+- **Current (Phase 6):** Navigation locked to same document URL; `window.open` denied; `openExternal` only after `https:` allowlist validation (no credentials in URL).
+- **Planned:** Further host allowlisting if product needs tighter egress.
 
 ### Secret leakage
 
@@ -127,7 +127,8 @@ Renderer ──IPC──► preload/main
 
 ## RESIDUAL RISKS (HONEST)
 
-- Refresh tokens in Electron userData are file-persisted but not OS-keychain-protected (Phase 6 upgrade planned).
-- Monolithic inline scripts limit CSP strength.
+- Refresh at-rest protection depends on Electron `safeStorage` availability and platform backend quality (Linux `basic_text` is rejected; other backends are PLATFORM-DEPENDENT).
+- Monolithic inline scripts require CSP `'unsafe-inline'` for scripts/styles.
 - Desktop and web clients can always manipulate local progress offline; integrity guarantees apply to **server-stored** progress.
 - Backend/API hosting is not deployed to Railway/Cloudflare/Vercel in this phase.
+- Windows DPAPI does not isolate secrets from other apps in the same user session (per Electron/Windows model).

@@ -3,8 +3,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 /**
- * Minimal, frozen desktop bridge.
- * Never exposes Node/fs. Token values are opaque strings only.
+ * Minimal, frozen desktop bridge (Phase 6).
+ * Renderer receives opaque session operations only — no Node, filesystem, path, or shell.
  */
 contextBridge.exposeInMainWorld(
   'ghostDesktop',
@@ -16,14 +16,18 @@ contextBridge.exposeInMainWorld(
         return 'http://127.0.0.1:3000';
       }
     })(),
+    authSession: Object.freeze({
+      store: (token) => ipcRenderer.invoke('auth-session:store', token),
+      load: () => ipcRenderer.invoke('auth-session:load'),
+      clear: () => ipcRenderer.invoke('auth-session:clear')
+    }),
     beginOAuth: (url) => ipcRenderer.invoke('auth:open-oauth', url),
     onAuthCallback: (callback) => {
-      const listener = (_event, url) => callback(url);
+      const listener = (_event, url) => {
+        if (typeof callback === 'function') callback(url);
+      };
       ipcRenderer.on('auth:callback', listener);
       return () => ipcRenderer.removeListener('auth:callback', listener);
-    },
-    getRefreshToken: () => ipcRenderer.invoke('auth:get-refresh-token'),
-    setRefreshToken: (token) => ipcRenderer.invoke('auth:set-refresh-token', token),
-    clearRefreshToken: () => ipcRenderer.invoke('auth:clear-refresh-token')
+    }
   })
 );
