@@ -133,7 +133,8 @@ test('migration files are ordered deterministically by numeric prefix', () => {
     '001_create_users.sql',
     '002_create_sessions.sql',
     '003_create_profiles.sql',
-    '004_create_user_progress.sql'
+    '004_create_user_progress.sql',
+    '005_session_refresh_families.sql'
   ]);
   assert.deepEqual([...files].sort((a, b) => a.localeCompare(b, 'en')), files);
 });

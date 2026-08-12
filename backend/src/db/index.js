@@ -143,6 +143,27 @@ async function withClient(pool, fn) {
   }
 }
 
+async function withTransaction(pool, fn) {
+  return withClient(pool, async (client) => {
+    await client.query('BEGIN');
+    try {
+      const result = await fn(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // Ignore rollback failures; original error matters.
+      }
+      if (error instanceof ConfigError || error instanceof DatabaseError || error?.name === 'AppError') {
+        throw error;
+      }
+      throw sanitizeDbError(error);
+    }
+  });
+}
+
 async function checkConnection(pool) {
   try {
     await query(pool, 'SELECT 1 AS ok');
@@ -163,6 +184,7 @@ module.exports = {
   sanitizeDbError,
   query,
   withClient,
+  withTransaction,
   checkConnection,
   shouldUseSsl,
   readSslModeFromUrl

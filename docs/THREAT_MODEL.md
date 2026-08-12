@@ -66,8 +66,8 @@ Renderer ──IPC──► preload/main
 ### Refresh-token reuse
 
 - **Threat:** Stolen refresh/session token replayed after rotation.
-- **Planned mitigations:** Optional reuse detection that revokes the whole session family.
-- **Current:** Refresh rotation revokes the previous session row; reused refresh tokens fail as revoked/invalid.
+- **Planned mitigations:** Edge anomaly detection; optional stricter device binding.
+- **Current:** Refresh rotation marks `replaced_by_session_id`. Re-presentation of a replaced credential revokes the whole `family_id` chain, then returns a generic unauthorized error. New logins create a new family.
 
 ### XSS
 

@@ -50,7 +50,8 @@ There is still **no** profile/progress API, **no** live Railway/Vercel/Cloudflar
 - Argon2id password hashing
 - Short-lived JWT access tokens (HS256, iss/aud/exp verified)
 - Server-tracked refresh sessions with HMAC-SHA256 token hashes (no plaintext refresh tokens in DB)
-- Refresh-token rotation and logout revocation
+- Refresh-token rotation and family-wide reuse revocation (`family_id`, `replaced_by_session_id`)
+- Logout revocation
 - `GET /auth/me` protected by centralized auth middleware (server-derived identity)
 - In-process auth rate limiting foundation (direct socket IP by default; `TRUST_PROXY` opt-in)
 

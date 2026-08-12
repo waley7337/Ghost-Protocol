@@ -88,8 +88,10 @@ The retained SQL migration defines row-level security policies intended to restr
 - `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`
 - Short-lived JWT access tokens (`jose`, HS256) with explicit issuer, audience, and expiration checks
 - Refresh tokens stored only as HMAC-SHA256 hashes in `sessions.refresh_token_hash`
-- Refresh-token rotation (used refresh token session is revoked; new session issued)
-- Logout revokes the corresponding server-side session
+- Refresh-token rotation with `family_id` / `replaced_by_session_id` linkage
+- Reuse of a replaced refresh credential revokes the entire refresh-token family, then fails generically
+- Rotation uses PostgreSQL transactions + `SELECT ... FOR UPDATE` (and one-active-session-per-family unique index)
+- Logout revokes the current session only (does not wipe unrelated login families)
 - Central `requireAuth` middleware derives `req.auth.userId` from verified access tokens only
 - Safe auth error responses (no password hashes, tokens, SQL, or stack traces)
 - In-process rate limiting on auth endpoints; does not trust `X-Forwarded-For` unless `TRUST_PROXY=true`
