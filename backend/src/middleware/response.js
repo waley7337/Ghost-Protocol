@@ -2,17 +2,16 @@
 
 /**
  * Shared response helpers.
- * Centralized error handling and security headers will expand here later.
+ * Prefer setHeader so prior CORS headers are preserved.
  */
 
 function sendJson(res, statusCode, body) {
   const payload = JSON.stringify(body);
-  res.writeHead(statusCode, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(payload),
-    'X-Content-Type-Options': 'nosniff',
-    'Cache-Control': 'no-store'
-  });
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Length', Buffer.byteLength(payload));
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store');
+  res.writeHead(statusCode);
   res.end(payload);
 }
 

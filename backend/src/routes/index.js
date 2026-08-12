@@ -1,6 +1,7 @@
 'use strict';
 
 const { sendJson } = require('../middleware/response');
+const { applyCorsHeaders, handlePreflight } = require('../middleware/cors');
 const { createPool, checkConnection, getPool, closePool } = require('../db');
 const { createRequireAuth } = require('../middleware/auth');
 const { createRateLimiter } = require('../middleware/rateLimit');
@@ -9,10 +10,11 @@ const { createMeHandlers } = require('./me');
 const { requireAuthSecrets, ConfigError } = require('../config');
 
 /**
- * Phase 4 routes:
- * - health + auth (Phase 3)
+ * Phase 4–7 routes:
+ * - health + auth
  * - GET/PUT /me/profile
  * - GET/PUT /me/progress
+ * - CORS preflight for browser clients (FRONTEND_URL allowlist)
  */
 
 function createRequestListener(config, dependencies = {}) {
@@ -71,6 +73,9 @@ function createRequestListener(config, dependencies = {}) {
 
   return async function requestListener(req, res) {
     try {
+      applyCorsHeaders(req, res, config);
+      if (handlePreflight(req, res, config)) return;
+
       const path = req.url ? req.url.split('?')[0] : '';
 
       if (req.method === 'GET' && path === '/health') {

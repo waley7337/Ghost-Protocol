@@ -8,5 +8,6 @@ module.exports = {
   response: require('./response'),
   request: require('./request'),
   auth: require('./auth'),
-  rateLimit: require('./rateLimit')
+  rateLimit: require('./rateLimit'),
+  cors: require('./cors')
 };
