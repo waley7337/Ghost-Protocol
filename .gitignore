@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+
+# Build / packaging artifacts
+release/
+dist/
+out/
+*.dmg
+*.exe
+*.AppImage
+*.deb
+*.blockmap
+*.snap
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment / secrets (never commit real values)
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Coverage / test caches
+coverage/
+.nyc_output/
+
+# Temporary
+tmp/
+temp/
+*.tmp

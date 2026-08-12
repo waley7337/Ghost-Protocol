@@ -1,0 +1,66 @@
+{
+  "name": "ghost-protocol",
+  "version": "1.0.0",
+  "description": "Interactive Cybersecurity Learning Platform",
+  "author": "Waley Elnagdi",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "lint": "eslint electron --max-warnings=0",
+    "auth:bundle": "esbuild src/auth.js --bundle --minify --format=iife --outfile=assets/auth.bundle.js",
+    "icons": "png2icons assets/icons/png/1024x1024.png assets/icons/icon -allwe -bc",
+    "build": "npm run auth:bundle && electron-builder",
+    "build:dir": "npm run auth:bundle && electron-builder --dir",
+    "build:mac": "npm run auth:bundle && electron-builder --mac",
+    "build:win": "npm run auth:bundle && electron-builder --win",
+    "build:linux": "npm run auth:bundle && electron-builder --linux"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.1",
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.25.6",
+    "eslint": "^9.30.1",
+    "globals": "^16.3.0",
+    "png2icons": "^2.0.1"
+  },
+  "build": {
+    "appId": "com.waleyelnagdi.ghostprotocol",
+    "protocols": [{
+      "name": "Ghost Protocol Authentication",
+      "schemes": ["ghost-protocol"]
+    }],
+    "productName": "Ghost Protocol",
+    "copyright": "Copyright © 2026 Waley Elnagdi",
+    "asar": true,
+    "directories": { "output": "release", "buildResources": "assets/icons" },
+    "files": ["index.html", "electron/**/*", "assets/**/*", "package.json"],
+    "mac": {
+      "category": "public.app-category.education",
+      "icon": "assets/icons/icon.icns",
+      "target": ["dmg", "zip"],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "dmg": { "title": "Ghost Protocol ${version}" },
+    "win": { "icon": "assets/icons/icon.ico", "target": ["nsis"] },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Ghost Protocol"
+    },
+    "linux": {
+      "icon": "assets/icons/png",
+      "category": "Education",
+      "target": ["AppImage", "deb"]
+    }
+  }
+}
