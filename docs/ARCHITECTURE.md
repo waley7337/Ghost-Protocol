@@ -42,7 +42,7 @@ The `backend/` package now includes:
 - `GET /health` and `GET /health/db` (db health returns only ok/unavailable)
 - Railway-oriented process readiness: `PORT`/`HOST` bind, production config gate, graceful pool shutdown
 
-There is still **no** profile/progress API, **no** live Railway/Vercel/Cloudflare deployment, and **no** Electron/web client connection to this backend. Legacy Supabase client code remains in the Electron app until a later migration phase.
+There is still **no** live Railway/Vercel/Cloudflare deployment, and **no** Electron/web client connection to this backend. Legacy Supabase client code remains in the Electron app until a later migration phase.
 
 ### Phase 3 backend authentication (implemented, not wired to clients)
 
@@ -54,6 +54,14 @@ There is still **no** profile/progress API, **no** live Railway/Vercel/Cloudflar
 - Logout revocation
 - `GET /auth/me` protected by centralized auth middleware (server-derived identity)
 - In-process auth rate limiting foundation (direct socket IP by default; `TRUST_PROXY` opt-in)
+
+### Phase 4 user-scoped profile + progress API (implemented, not wired to clients)
+
+- `GET/PUT /me/profile` — ownership from `req.auth.userId` only
+- `GET/PUT /me/progress` — GhostProgress-compatible JSONB; `404 progress_not_found` when empty
+- Client ownership identifiers are **never authoritative** (stripped/ignored; queries always use authenticated user id)
+- Profile rows are lazily created on first profile access (UPSERT)
+- Progress rows are created on first successful `PUT /me/progress`
 
 Production hosting intent (not deployed yet): **Railway** for Backend API + PostgreSQL. See `docs/RAILWAY.md`.
 
@@ -196,7 +204,7 @@ Desktop packaging must continue to enforce context isolation, disabled `nodeInte
 ```
 /
 ├── docs/                 # Architecture and security documentation
-├── backend/              # PostgreSQL foundation + health endpoints (not wired to clients)
+├── backend/              # Auth + /me profile/progress APIs (not wired to clients)
 │   ├── migrations/       # First-party SQL migrations
 │   ├── src/db/           # Pool, query helper, migration runner
 │   └── tests/

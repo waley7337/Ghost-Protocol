@@ -84,14 +84,14 @@ Renderer ──IPC──► preload/main
 ### Broken object-level authorization (BOLA)
 
 - **Threat:** Client supplies another user's id and reads/writes their profile or progress.
-- **Planned mitigations:** Server-derived identity; every private query scoped to authenticated user; automated cross-user isolation tests.
-- **Current:** Legacy client sends `user_id` in upserts; historical mitigation was Supabase RLS. Phase 2 schema uses FK ownership (`user_id` → `users.id`) but **application authorization is not implemented yet**.
+- **Mitigations (Phase 4):** Server-derived identity (`req.auth.userId`); every `/me/profile` and `/me/progress` query scoped to that id; client `user_id` / `userId` / `id` fields are stripped or ignored; automated cross-user isolation tests on the memory pool.
+- **Current:** Backend ownership for profile/progress is implemented. Legacy Electron still uses Supabase + client-supplied `user_id` until Phase 5 migration.
 
 ### Injection
 
 - **Threat:** SQL/command injection via API inputs.
-- **Planned mitigations:** Parameterized queries, input validation, least-privilege DB role, no dynamic SQL from user strings.
-- **Current:** No first-party DB access layer yet.
+- **Mitigations:** Parameterized queries, profile/progress validation, no dynamic SQL from user strings.
+- **Current:** Backend `query` helper requires parameterized values; profile/progress validators reject unknown keys and unsafe shapes.
 
 ### Malicious IPC input
 

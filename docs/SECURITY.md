@@ -100,6 +100,18 @@ The retained SQL migration defines row-level security policies intended to restr
 **Non-claim:** Electron/web clients are **not** wired to these endpoints yet. Legacy Supabase auth remains in the desktop app.  
 **Non-claim:** Google OAuth, password reset emails, and distributed/edge rate limits are **not** implemented.
 
+### User-scoped profile + progress API (Phase 4)
+
+- `GET /me/profile`, `PUT /me/profile`
+- `GET /me/progress`, `PUT /me/progress`
+- **CLIENT OWNERSHIP IDENTIFIERS ARE NEVER AUTHORITATIVE.** All ownership uses `req.auth.userId` from verified access tokens.
+- Profile field allowlist: `name`, `avatarUrl`
+- Progress payload validation for GhostProgress shape (types, bounds, size)
+- Parameterized SQL with `WHERE user_id = $authenticatedUserId`
+- `GET /me/progress` returns `404` / `progress_not_found` when no server row exists (supports later client hydrate-or-upload)
+
+**Non-claim:** Electron/web still do not call these APIs.
+
 ### PostgreSQL privilege model (documented intent)
 
 Ideal separation:
@@ -138,19 +150,16 @@ The following controls remain unimplemented.
 
 ### Authorization (planned / remaining)
 
-- Profile and progress ownership endpoints (Phase 4)
-- Cross-user isolation tests against live PostgreSQL
-- Broader API authorization beyond `/auth/me`
+- Broader API surfaces beyond `/me/*` as features grow
+- Optional CI PostgreSQL cross-user isolation suite (unit isolation tests already cover memory pool)
 
 ### API hardening (planned)
 
-- Input validation
-- Request size limits
-- Rate limiting
-- Centralized error handling (no stack traces or secrets to clients)
+- Distributed / edge rate limiting
 - Strict production CORS
 - Security headers
 - Audit / security logging
+- Broader input validation beyond auth + profile/progress
 
 ### Database (planned / remaining)
 

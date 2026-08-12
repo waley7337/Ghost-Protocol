@@ -8,5 +8,8 @@ module.exports = {
   passwords: require('./passwords'),
   tokens: require('./tokens'),
   sessions: require('./sessions'),
-  users: require('./users')
+  users: require('./users'),
+  profiles: require('./profiles'),
+  progress: require('./progress'),
+  progressValidation: require('./progressValidation')
 };

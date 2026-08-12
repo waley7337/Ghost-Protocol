@@ -201,7 +201,7 @@ test('protected route rejects missing Authorization without trusting body user_i
   }
 });
 
-test('GET /health reports phase 3 and authConfigured', async () => {
+test('GET /health reports phase 4 and authConfigured', async () => {
   const config = testConfig();
   const server = http.createServer(
     createRequestListener(config, { checkDb: async () => false })
@@ -212,7 +212,7 @@ test('GET /health reports phase 3 and authConfigured', async () => {
     const response = await fetch(`http://127.0.0.1:${port}/health`);
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.equal(body.phase, 3);
+    assert.equal(body.phase, 4);
     assert.equal(body.authConfigured, true);
   } finally {
     await new Promise((resolve, reject) => {

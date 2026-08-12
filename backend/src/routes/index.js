@@ -5,14 +5,14 @@ const { createPool, checkConnection, getPool, closePool } = require('../db');
 const { createRequireAuth } = require('../middleware/auth');
 const { createRateLimiter } = require('../middleware/rateLimit');
 const { createAuthHandlers } = require('./auth');
+const { createMeHandlers } = require('./me');
 const { requireAuthSecrets, ConfigError } = require('../config');
 
 /**
- * Phase 3 routes:
- * - GET /health
- * - GET /health/db
- * - POST /auth/register|login|refresh|logout
- * - GET /auth/me
+ * Phase 4 routes:
+ * - health + auth (Phase 3)
+ * - GET/PUT /me/profile
+ * - GET/PUT /me/progress
  */
 
 function createRequestListener(config, dependencies = {}) {
@@ -41,7 +41,7 @@ function createRequestListener(config, dependencies = {}) {
     dependencies.getPool ||
     (() => {
       if (!config.databaseUrl) {
-        throw new ConfigError('DATABASE_URL is required for authentication endpoints');
+        throw new ConfigError('DATABASE_URL is required for authenticated endpoints');
       }
       return getPool(config);
     });
@@ -63,6 +63,12 @@ function createRequestListener(config, dependencies = {}) {
     rateLimitAuth
   });
 
+  const me = createMeHandlers({
+    config,
+    getPool: poolFactory,
+    requireAuth
+  });
+
   return async function requestListener(req, res) {
     try {
       const path = req.url ? req.url.split('?')[0] : '';
@@ -71,7 +77,7 @@ function createRequestListener(config, dependencies = {}) {
         sendJson(res, 200, {
           status: 'ok',
           service: 'ghost-protocol-api',
-          phase: 3,
+          phase: 4,
           environment: config.nodeEnv,
           authConfigured: authReady
         });
@@ -86,7 +92,7 @@ function createRequestListener(config, dependencies = {}) {
         return;
       }
 
-      if (!authReady && path.startsWith('/auth/')) {
+      if (!authReady && (path.startsWith('/auth/') || path.startsWith('/me/'))) {
         sendJson(res, 503, {
           error: 'auth_not_configured',
           message: 'Authentication secrets are not configured'
@@ -112,6 +118,23 @@ function createRequestListener(config, dependencies = {}) {
       }
       if (req.method === 'GET' && path === '/auth/me') {
         await auth.me(req, res);
+        return;
+      }
+
+      if (req.method === 'GET' && path === '/me/profile') {
+        await me.getProfile(req, res);
+        return;
+      }
+      if (req.method === 'PUT' && path === '/me/profile') {
+        await me.putProfile(req, res);
+        return;
+      }
+      if (req.method === 'GET' && path === '/me/progress') {
+        await me.getProgress(req, res);
+        return;
+      }
+      if (req.method === 'PUT' && path === '/me/progress') {
+        await me.putProgress(req, res);
         return;
       }
 

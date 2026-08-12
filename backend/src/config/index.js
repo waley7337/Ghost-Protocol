@@ -57,7 +57,8 @@ function loadConfig(env = process.env) {
     authRateLimitWindowMs: parsePositiveInt(env.AUTH_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
     authRateLimitMax: parsePositiveInt(env.AUTH_RATE_LIMIT_MAX, 20),
     trustProxy: env.TRUST_PROXY === 'true',
-    jsonBodyLimitBytes: parsePositiveInt(env.JSON_BODY_LIMIT_BYTES, 16 * 1024)
+    jsonBodyLimitBytes: parsePositiveInt(env.JSON_BODY_LIMIT_BYTES, 16 * 1024),
+    progressBodyLimitBytes: parsePositiveInt(env.PROGRESS_BODY_LIMIT_BYTES, 65_536)
   });
 }
 

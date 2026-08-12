@@ -1,6 +1,6 @@
 # Ghost Protocol Backend
 
-Phase 3 provides PostgreSQL persistence plus email/password authentication foundations.
+Phase 4 provides PostgreSQL persistence, authentication, and user-scoped profile/progress APIs.
 
 ## Implemented
 
@@ -11,14 +11,21 @@ Phase 3 provides PostgreSQL persistence plus email/password authentication found
   - `POST /auth/refresh`
   - `POST /auth/logout`
   - `GET /auth/me`
+- User-scoped endpoints (identity from access token only):
+  - `GET /me/profile`, `PUT /me/profile`
+  - `GET /me/progress`, `PUT /me/progress`
 - Argon2id passwords, JWT access tokens, hashed refresh sessions with rotation
 - `GET /health`, `GET /health/db`
 - Railway-oriented process readiness (`PORT`, production config gate, graceful shutdown)
 
+## Ownership rule
+
+**CLIENT OWNERSHIP IDENTIFIERS ARE NEVER AUTHORITATIVE.**  
+`/me/*` always scopes to `req.auth.userId` from a verified access token. Body fields like `user_id` / `userId` / `id` are ignored or rejected for unsupported keys.
+
 ## Not implemented / not wired
 
 - Electron or web client migration off Supabase
-- Profile/progress HTTP APIs
 - Google OAuth / password reset
 - Railway / Cloudflare / Vercel deployment
 

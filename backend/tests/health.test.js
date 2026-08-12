@@ -15,7 +15,7 @@ const {
 } = require('../src/db');
 const { listMigrationFiles, DEFAULT_MIGRATIONS_DIR } = require('../src/db/migrate');
 
-test('GET /health returns phase 3 scaffold payload', async () => {
+test('GET /health returns phase 4 scaffold payload', async () => {
   const server = http.createServer(
     createRequestListener(
       {
@@ -44,7 +44,7 @@ test('GET /health returns phase 3 scaffold payload', async () => {
     const body = await response.json();
     assert.equal(body.status, 'ok');
     assert.equal(body.service, 'ghost-protocol-api');
-    assert.equal(body.phase, 3);
+    assert.equal(body.phase, 4);
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
