@@ -13,7 +13,8 @@ contextBridge.exposeInMainWorld(
       try {
         return ipcRenderer.sendSync('auth:get-api-base-sync');
       } catch {
-        return 'http://127.0.0.1:3000';
+        // Fail closed: never invent a localhost API origin for packaged builds.
+        return null;
       }
     })(),
     authSession: Object.freeze({

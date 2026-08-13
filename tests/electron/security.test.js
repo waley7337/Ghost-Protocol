@@ -102,6 +102,58 @@ test('production HTTPS API accepted; remote HTTP rejected; loopback HTTP allowed
   assert.throws(() => security.assertApiBaseUrlAllowed('ftp://example.com'), /Insecure|Invalid/);
 });
 
+const PACKAGED_API_FALLBACK = 'https://ghost-protocol-production-f7ef.up.railway.app';
+
+test('resolveApiBaseUrlFromEnv: explicit HTTPS GHOST_API_BASE_URL wins', () => {
+  assert.equal(
+    security.resolveApiBaseUrlFromEnv(
+      { GHOST_API_BASE_URL: 'https://api.example.com/' },
+      { isPackaged: true, fallback: PACKAGED_API_FALLBACK }
+    ),
+    'https://api.example.com'
+  );
+  assert.equal(
+    security.resolveApiBaseUrlFromEnv(
+      { API_PUBLIC_URL: 'https://other.example.com' },
+      { isPackaged: false, fallback: 'http://127.0.0.1:3000' }
+    ),
+    'https://other.example.com'
+  );
+});
+
+test('resolveApiBaseUrlFromEnv: development fallback may be loopback', () => {
+  assert.equal(
+    security.resolveApiBaseUrlFromEnv({}, { isPackaged: false, fallback: 'http://127.0.0.1:3000' }),
+    'http://127.0.0.1:3000'
+  );
+});
+
+test('resolveApiBaseUrlFromEnv: packaged fallback resolves to Railway HTTPS when supplied', () => {
+  assert.equal(
+    security.resolveApiBaseUrlFromEnv({}, { isPackaged: true, fallback: PACKAGED_API_FALLBACK }),
+    PACKAGED_API_FALLBACK
+  );
+});
+
+test('resolveApiBaseUrlFromEnv: insecure remote HTTP is rejected', () => {
+  assert.throws(
+    () =>
+      security.resolveApiBaseUrlFromEnv(
+        { GHOST_API_BASE_URL: 'http://api.example.com' },
+        { isPackaged: true, fallback: PACKAGED_API_FALLBACK }
+      ),
+    /Insecure/
+  );
+});
+
+test('preload fails closed on sync API base IPC failure (no localhost invent)', () => {
+  assert.match(preloadSource, /return null/);
+  assert.doesNotMatch(
+    preloadSource,
+    /catch\s*\{[^}]*return\s+['"]http:\/\/127\.0\.0\.1:3000['"]/s
+  );
+});
+
 test('credential store encrypts at rest and never writes plaintext refreshToken field', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ghost-cred-'));
   const safeStorage = makeMockSafeStorage();

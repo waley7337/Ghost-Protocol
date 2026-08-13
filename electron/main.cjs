@@ -14,9 +14,12 @@ let credentialStore;
 let apiBaseUrl;
 
 function resolveStartupApiBaseUrl() {
+  const isPackaged = app.isPackaged;
   return security.resolveApiBaseUrlFromEnv(process.env, {
-    isPackaged: app.isPackaged,
-    fallback: 'http://127.0.0.1:3000'
+    isPackaged,
+    fallback: isPackaged
+      ? 'https://ghost-protocol-production-f7ef.up.railway.app'
+      : 'http://127.0.0.1:3000'
   });
 }
 
