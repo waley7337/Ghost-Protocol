@@ -1,7 +1,7 @@
 'use strict';
 
 const { sendJson } = require('./response');
-const { toClientError } = require('../errors');
+const { toClientError, logUnexpectedError } = require('../errors');
 
 const MAX_BODY_BYTES_DEFAULT = 16 * 1024;
 
@@ -51,16 +51,23 @@ function getBearerToken(req) {
 function clientIp(req, { trustProxy = false } = {}) {
   // Default: use the direct socket address. Spoofable forwarding headers are ignored
   // unless TRUST_PROXY=true is explicitly enabled behind a trusted edge.
+  let ip = null;
   if (trustProxy) {
     const forwarded = req.headers['x-forwarded-for'];
     if (typeof forwarded === 'string' && forwarded.trim()) {
-      return forwarded.split(',')[0].trim();
+      ip = forwarded.split(',')[0].trim();
     }
   }
-  return req.socket?.remoteAddress || 'unknown';
+  if (!ip) {
+    ip = req.socket?.remoteAddress || null;
+  }
+  // sessions.ip_address is INET — never send a non-IP sentinel like "unknown".
+  if (!ip || ip === 'unknown') return null;
+  return ip;
 }
 
-function sendAppError(res, error) {
+function sendAppError(res, error, meta = {}) {
+  logUnexpectedError(error, meta);
   const mapped = toClientError(error);
   sendJson(res, mapped.status, mapped.body);
 }

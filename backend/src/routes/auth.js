@@ -76,7 +76,7 @@ function createAuthHandlers({ config, getPool, requireAuth, rateLimitAuth, fetch
           sendAppError(res, new AppError('Invalid JSON body', { status: 400, code: 'invalid_json' }));
           return;
         }
-        sendAppError(res, error);
+        sendAppError(res, error, { route: '/auth/register', method: 'POST' });
       }
     },
 
@@ -101,7 +101,7 @@ function createAuthHandlers({ config, getPool, requireAuth, rateLimitAuth, fetch
           sendAppError(res, new AppError('Invalid JSON body', { status: 400, code: 'invalid_json' }));
           return;
         }
-        sendAppError(res, error);
+        sendAppError(res, error, { route: '/auth/login', method: 'POST' });
       }
     },
 
@@ -125,7 +125,7 @@ function createAuthHandlers({ config, getPool, requireAuth, rateLimitAuth, fetch
           sendAppError(res, new AppError('Invalid JSON body', { status: 400, code: 'invalid_json' }));
           return;
         }
-        sendAppError(res, error);
+        sendAppError(res, error, { route: '/auth/refresh', method: 'POST' });
       }
     },
 
@@ -144,7 +144,7 @@ function createAuthHandlers({ config, getPool, requireAuth, rateLimitAuth, fetch
           sendAppError(res, new AppError('Invalid JSON body', { status: 400, code: 'invalid_json' }));
           return;
         }
-        sendAppError(res, error);
+        sendAppError(res, error, { route: '/auth/logout', method: 'POST' });
       }
     },
 
@@ -155,7 +155,7 @@ function createAuthHandlers({ config, getPool, requireAuth, rateLimitAuth, fetch
         const user = await getUserById(pool, req.auth.userId);
         sendJson(res, 200, { user });
       } catch (error) {
-        sendAppError(res, error);
+        sendAppError(res, error, { route: '/auth/me', method: 'GET' });
       }
     },
 
@@ -169,7 +169,7 @@ function createAuthHandlers({ config, getPool, requireAuth, rateLimitAuth, fetch
         });
         sendRedirect(res, started.url);
       } catch (error) {
-        sendAppError(res, error);
+        sendAppError(res, error, { route: '/auth/google', method: 'GET' });
       }
     },
 
@@ -189,7 +189,7 @@ function createAuthHandlers({ config, getPool, requireAuth, rateLimitAuth, fetch
         });
         sendRedirect(res, result.redirectTo);
       } catch (error) {
-        sendAppError(res, error);
+        sendAppError(res, error, { route: '/auth/google/callback', method: 'GET' });
       }
     },
 
@@ -209,7 +209,7 @@ function createAuthHandlers({ config, getPool, requireAuth, rateLimitAuth, fetch
           sendAppError(res, new AppError('Invalid JSON body', { status: 400, code: 'invalid_json' }));
           return;
         }
-        sendAppError(res, error);
+        sendAppError(res, error, { route: '/auth/google/exchange', method: 'POST' });
       }
     }
   };

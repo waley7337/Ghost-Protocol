@@ -34,6 +34,24 @@ function readSslModeFromUrl(connectionString) {
   }
 }
 
+function readHostnameFromUrl(connectionString) {
+  try {
+    return new URL(connectionString).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Railway private mesh hosts (*.railway.internal) do not present publicly
+ * verifiable TLS certs. Prefer plaintext on the private network unless the
+ * operator explicitly sets DATABASE_SSL=require (or sslmode=require).
+ * Public DATABASE_URL hosts still default to TLS in production.
+ */
+function isRailwayPrivateHostname(hostname) {
+  return typeof hostname === 'string' && hostname.endsWith('.railway.internal');
+}
+
 function shouldUseSsl(config) {
   const mode = (config.databaseSsl || '').toLowerCase();
   if (mode === 'disable' || mode === 'false') return false;
@@ -45,7 +63,12 @@ function shouldUseSsl(config) {
     return true;
   }
 
-  // Production default: use TLS (Railway Postgres expects encrypted connections).
+  const hostname = config.databaseUrl ? readHostnameFromUrl(config.databaseUrl) : '';
+  if (isRailwayPrivateHostname(hostname)) {
+    return false;
+  }
+
+  // Production default for public hosts: use TLS (Railway public Postgres proxy).
   // Development default without explicit config: no TLS (typical local Postgres).
   return config.nodeEnv === 'production';
 }
@@ -168,7 +191,16 @@ async function checkConnection(pool) {
   try {
     await query(pool, 'SELECT 1 AS ok');
     return true;
-  } catch {
+  } catch (error) {
+    const code = typeof error?.code === 'string' ? error.code : 'DATABASE_ERROR';
+    // Client-facing /health/db stays ok|unavailable only; log code for operators.
+    process.stderr.write(
+      `${JSON.stringify({
+        level: 'error',
+        msg: 'db_health_check_failed',
+        code
+      })}\n`
+    );
     return false;
   }
 }
@@ -187,5 +219,6 @@ module.exports = {
   withTransaction,
   checkConnection,
   shouldUseSsl,
-  readSslModeFromUrl
+  readSslModeFromUrl,
+  isRailwayPrivateHostname
 };

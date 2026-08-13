@@ -212,6 +212,28 @@ test('buildPoolConfig enables TLS for production by default with cert validation
   assert.equal(poolConfig.ssl.rejectUnauthorized, true);
 });
 
+test('buildPoolConfig skips TLS for Railway private mesh hosts unless forced', () => {
+  const { isRailwayPrivateHostname } = require('../src/db');
+  assert.equal(isRailwayPrivateHostname('postgres.railway.internal'), true);
+  assert.equal(isRailwayPrivateHostname('db.example'), false);
+
+  const privateConfig = loadConfig({
+    NODE_ENV: 'production',
+    PORT: '8080',
+    DATABASE_URL: 'postgresql://ghost_app:CHANGE_ME@postgres.railway.internal:5432/railway'
+  });
+  assert.equal(shouldUseSsl(privateConfig), false);
+  assert.equal(buildPoolConfig(privateConfig).ssl, undefined);
+
+  const forced = loadConfig({
+    NODE_ENV: 'production',
+    PORT: '8080',
+    DATABASE_URL: 'postgresql://ghost_app:CHANGE_ME@postgres.railway.internal:5432/railway',
+    DATABASE_SSL: 'require'
+  });
+  assert.equal(shouldUseSsl(forced), true);
+});
+
 test('assertProductionConfig requires DATABASE_URL and rejects client-exposed DB vars', () => {
   const { assertProductionConfig } = require('../src/config');
   assert.throws(

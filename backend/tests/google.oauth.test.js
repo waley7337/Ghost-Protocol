@@ -465,3 +465,39 @@ test('production Google redirect URI is derived from API_PUBLIC_URL', () => {
     'https://ghost-protocol-production-f7ef.up.railway.app/auth/google/callback'
   );
 });
+
+test('GET /auth/google returns 503 google_not_configured when Google env is missing', async () => {
+  const bare = loadConfig({
+    NODE_ENV: 'test',
+    PORT: '3000',
+    DATABASE_URL: 'postgresql://example',
+    ACCESS_TOKEN_SECRET: 'test-access-secret-at-least-32-chars-long',
+    REFRESH_TOKEN_SECRET: 'test-refresh-secret-at-least-32-chars-long',
+    FRONTEND_URL: 'https://ghost-protocol-pi.vercel.app',
+    API_PUBLIC_URL: 'https://ghost-protocol-production-f7ef.up.railway.app',
+    AUTH_RATE_LIMIT_MAX: '1000'
+  });
+  assert.equal(bare.googleClientId, null);
+  assert.equal(bare.googleClientSecret, null);
+
+  const server = http.createServer(
+    createRequestListener(bare, {
+      checkDb: async () => true,
+      getPool: () => {
+        throw new Error('pool should not be used when Google is not configured');
+      }
+    })
+  );
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/auth/google`);
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.equal(body.error, 'google_not_configured');
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});

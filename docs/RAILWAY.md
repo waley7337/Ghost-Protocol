@@ -64,7 +64,8 @@ Do **not** set `DATABASE_URL`, `VITE_DATABASE_URL`, or `NEXT_PUBLIC_DATABASE_URL
 | Environment | Default TLS | Certificate validation |
 |-------------|-------------|------------------------|
 | `NODE_ENV=development` | Off unless `DATABASE_SSL=require` or URL `sslmode=require` | N/A when TLS off |
-| `NODE_ENV=production` | On | `rejectUnauthorized: true` by default |
+| `NODE_ENV=production` + public DB host | On | `rejectUnauthorized: true` by default |
+| `NODE_ENV=production` + `*.railway.internal` (private mesh) | Off (unless `DATABASE_SSL=require`) | N/A when TLS off |
 
 Optional:
 
@@ -72,7 +73,7 @@ Optional:
 - `DATABASE_SSL_CA=/path/to/ca.pem` — trust a provided CA while keeping validation on
 - `DATABASE_SSL_REJECT_UNAUTHORIZED=false` — **explicit weakening only**; document residual MITM risk if Railway's presented certificate cannot be validated with a CA yet
 
-This project does **not** default to disabling certificate validation merely to make Railway connect.
+Prefer Railway's **private** `DATABASE_URL` (`*.railway.internal`) between API and Postgres. Private-mesh hosts skip TLS by default because they do not present publicly verifiable certificates; this is not a public-network MITM tradeoff. Public proxy URLs still default to TLS with certificate validation. This project does **not** default to disabling certificate validation merely to make a public Railway proxy connect.
 
 ## What remains for a later Railway deployment phase
 

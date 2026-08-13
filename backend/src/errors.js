@@ -15,6 +15,40 @@ class AppError extends Error {
   }
 }
 
+function redactSecrets(value) {
+  if (value == null) return '';
+  return String(value)
+    .replace(/postgres(?:ql)?:\/\/[^\s"'`]+/gi, '[redacted-db-url]')
+    .replace(/\bBearer\s+[^\s"'`]+/gi, 'Bearer [redacted]')
+    .replace(/\b(access|refresh|id)_?token["'\s:=]+[^\s"'`,}]+/gi, '$1_token=[redacted]')
+    .replace(/\b(password|secret|authorization)["'\s:=]+[^\s"'`,}]+/gi, '$1=[redacted]');
+}
+
+/**
+ * Log unexpected failures server-side for Railway/operator diagnosis.
+ * Does not log passwords, tokens, or connection strings. Clients still get
+ * generic internal_error via toClientError.
+ */
+function logUnexpectedError(error, { route, method } = {}) {
+  if (error instanceof AppError && error.expose) return;
+
+  const payload = {
+    level: 'error',
+    msg: 'unexpected_error',
+    route: typeof route === 'string' ? route : undefined,
+    method: typeof method === 'string' ? method : undefined,
+    name: error?.name || 'Error',
+    code: typeof error?.code === 'string' ? error.code : undefined,
+    message: redactSecrets(error?.message || 'unknown error')
+  };
+
+  if (typeof error?.stack === 'string' && error.stack) {
+    payload.stack = redactSecrets(error.stack.split('\n').slice(0, 10).join('\n'));
+  }
+
+  process.stderr.write(`${JSON.stringify(payload)}\n`);
+}
+
 function toClientError(error) {
   if (error instanceof AppError && error.expose) {
     return {
@@ -29,4 +63,4 @@ function toClientError(error) {
   };
 }
 
-module.exports = { AppError, toClientError };
+module.exports = { AppError, toClientError, logUnexpectedError, redactSecrets };

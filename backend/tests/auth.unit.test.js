@@ -141,6 +141,41 @@ test('toClientError never exposes secrets or stacks', () => {
   assert.equal(JSON.stringify(mapped).includes('pass'), false);
 });
 
+test('logUnexpectedError redacts secrets and skips exposed AppErrors', () => {
+  const { logUnexpectedError, redactSecrets } = require('../src/errors');
+  assert.match(
+    redactSecrets('fail postgresql://user:s3cret@host/db Bearer tok password=hunter2'),
+    /\[redacted/
+  );
+  assert.doesNotMatch(
+    redactSecrets('fail postgresql://user:s3cret@host/db Bearer tok'),
+    /s3cret|Bearer tok/
+  );
+
+  const chunks = [];
+  const originalWrite = process.stderr.write;
+  process.stderr.write = (chunk) => {
+    chunks.push(String(chunk));
+    return true;
+  };
+  try {
+    logUnexpectedError(new AppError('nope', { status: 400, code: 'bad_request' }));
+    assert.equal(chunks.length, 0);
+    logUnexpectedError(new Error('postgresql://user:s3cret@host/db'), {
+      route: '/auth/register',
+      method: 'POST'
+    });
+    assert.equal(chunks.length, 1);
+    const line = JSON.parse(chunks[0]);
+    assert.equal(line.msg, 'unexpected_error');
+    assert.equal(line.route, '/auth/register');
+    assert.equal(line.message.includes('s3cret'), false);
+    assert.match(line.message, /\[redacted-db-url\]/);
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+});
+
 test('requireAuth derives identity from validated token only', async () => {
   const config = testConfig();
   const requireAuth = createRequireAuth(config);
@@ -165,6 +200,13 @@ test('requireAuth derives identity from validated token only', async () => {
   assert.equal(ok, true);
   assert.equal(req.auth.userId, '11111111-1111-1111-1111-111111111111');
   assert.equal(req.auth.sessionId, '22222222-2222-2222-2222-222222222222');
+});
+
+test('clientIp never returns non-INET sentinel values', () => {
+  const { clientIp } = require('../src/middleware/request');
+  assert.equal(clientIp({ headers: {}, socket: {} }), null);
+  assert.equal(clientIp({ headers: {}, socket: { remoteAddress: 'unknown' } }), null);
+  assert.equal(clientIp({ headers: {}, socket: { remoteAddress: '127.0.0.1' } }), '127.0.0.1');
 });
 
 test('protected route rejects missing Authorization without trusting body user_id', async () => {

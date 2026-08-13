@@ -8,6 +8,7 @@ const { createRateLimiter } = require('../middleware/rateLimit');
 const { createAuthHandlers } = require('./auth');
 const { createMeHandlers } = require('./me');
 const { requireAuthSecrets, ConfigError } = require('../config');
+const { logUnexpectedError } = require('../errors');
 
 /**
  * Phase 4–7 routes:
@@ -157,7 +158,9 @@ function createRequestListener(config, dependencies = {}) {
       }
 
       sendJson(res, 404, { error: 'not_found' });
-    } catch {
+    } catch (error) {
+      const pathOnly = req.url ? req.url.split('?')[0] : '';
+      logUnexpectedError(error, { route: pathOnly, method: req.method });
       sendJson(res, 500, { error: 'internal_error' });
     }
   };
