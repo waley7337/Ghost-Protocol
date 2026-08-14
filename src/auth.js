@@ -161,18 +161,51 @@ function needsProgressFlush() {
 }
 
 /**
+ * Drop any prior-account / anonymous local progress before server hydrate.
+ * Auth-gated product: never carry localStorage progress across identities.
+ */
+function resetLocalProgressForNewSession() {
+  if (typeof window.GhostProgress?.reset === 'function') {
+    window.GhostProgress.reset();
+  }
+  progressReady = false;
+  markProgressClean();
+}
+
+function canonicalEmptyProgress() {
+  if (typeof window.GhostProgress?.emptySnapshot === 'function') {
+    return window.GhostProgress.emptySnapshot();
+  }
+  return {
+    xp: 0,
+    solved: [],
+    streak: 0,
+    lastDay: null,
+    bestTimes: {},
+    notes: {},
+    quizScores: {},
+    achievements: [],
+    unlocks: [],
+    preferences: {},
+    settings: {}
+  };
+}
+
+/**
  * STARTUP SYNC BARRIER:
- * AUTH → LOAD SERVER PROGRESS → HYDRATE/INIT → SYNC ENABLED → then uploads.
+ * AUTH → RESET LOCAL → LOAD SERVER PROGRESS → HYDRATE/INIT → SYNC ENABLED → then uploads.
  * Events before sync is enabled must NOT overwrite server progress.
  *
  * LWW honesty (Phase 9 / WAL-251): concurrent edits from two active clients remain
  * full-snapshot last-write-wins. WAL-202 only stops unload/hydration from writing a
  * clean snapshot — it does not add optimistic concurrency.
+ *
+ * Cross-account isolation (Phase 9): always reset local progress before hydrate.
+ * On progress_not_found, bootstrap canonical empty progress only — never prior-user local ST.
  */
 async function loadProgressWithBarrier() {
   disableSync();
-  progressReady = false;
-  markProgressClean();
+  resetLocalProgressForNewSession();
   try {
     const result = await api.getProgress();
     if (result?.progress) {
@@ -183,11 +216,12 @@ async function loadProgressWithBarrier() {
     }
   } catch (error) {
     if (error?.code === 'progress_not_found' || error?.status === 404) {
-      const local = window.GhostProgress?.snapshot();
-      if (!isValidProgressSnapshot(local)) {
+      const empty = canonicalEmptyProgress();
+      if (!isValidProgressSnapshot(empty)) {
         throw error;
       }
-      await api.putProgress(local);
+      await api.putProgress(empty);
+      window.GhostProgress?.hydrate(empty);
       progressReady = true;
       markProgressClean();
     } else {
@@ -440,6 +474,7 @@ $('auth-logout').onclick = async () => {
     }
   }
   profile = null;
+  resetLocalProgressForNewSession();
   showGate(true);
   $('profile-panel').classList.add('auth-hidden');
 };

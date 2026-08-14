@@ -513,6 +513,37 @@ addEventListener('scroll',()=>{
 // ═══════════════════════════════════════════
 // STATE & PERSISTENCE
 // ═══════════════════════════════════════════
+/** Canonical empty progress for new authenticated users (auth-gated — no anonymous carry-over). */
+function emptyProgressState(){
+  return{
+    xp:0,
+    solved:new Set(),
+    streak:0,
+    lastDay:null,
+    bestTimes:{},
+    notes:{},
+    quizScores:{},
+    achievements:[],
+    unlocks:[],
+    preferences:{},
+    settings:{},
+  };
+}
+function emptyProgressSnapshot(){
+  return{
+    xp:0,
+    solved:[],
+    streak:0,
+    lastDay:null,
+    bestTimes:{},
+    notes:{},
+    quizScores:{},
+    achievements:[],
+    unlocks:[],
+    preferences:{},
+    settings:{},
+  };
+}
 function loadState(){
   try{
     const s=JSON.parse(localStorage.getItem('ghost_protocol')||'{}');
@@ -529,7 +560,7 @@ function loadState(){
       preferences:s.preferences||{},
       settings:s.settings||{},
     };
-  }catch(e){return{xp:0,solved:new Set(),streak:0,lastDay:null,bestTimes:{},notes:{},quizScores:{},achievements:[],unlocks:[],preferences:{},settings:{}};}
+  }catch(e){return emptyProgressState();}
 }
 function saveState(){
   const snapshot={
@@ -550,6 +581,7 @@ function saveState(){
 }
 const ST=loadState();
 window.GhostProgress=Object.freeze({
+  emptySnapshot:()=>emptyProgressSnapshot(),
   snapshot:()=>({
     xp:ST.xp,
     solved:[...ST.solved],
@@ -563,6 +595,26 @@ window.GhostProgress=Object.freeze({
     preferences:ST.preferences,
     settings:ST.settings,
   }),
+  /** Wipe in-memory + localStorage progress so the next session cannot inherit another account. */
+  reset:()=>{
+    const empty=emptyProgressState();
+    ST.xp=empty.xp;
+    ST.solved=empty.solved;
+    ST.streak=empty.streak;
+    ST.lastDay=empty.lastDay;
+    ST.bestTimes=empty.bestTimes;
+    ST.notes=empty.notes;
+    ST.quizScores=empty.quizScores;
+    ST.achievements=empty.achievements;
+    ST.unlocks=empty.unlocks;
+    ST.preferences=empty.preferences;
+    ST.settings=empty.settings;
+    localStorage.removeItem('ghost_protocol');
+    localStorage.setItem('ghost_protocol',JSON.stringify(emptyProgressSnapshot()));
+    if(typeof buildDash==='function')buildDash();
+    if(typeof buildRanks==='function')buildRanks();
+    if(typeof updateUI==='function')updateUI();
+  },
   hydrate:(state={})=>{
     ST.xp=Number(state.xp)||0;
     ST.solved=new Set(Array.isArray(state.solved)?state.solved:[]);

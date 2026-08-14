@@ -21,6 +21,9 @@ test('src/auth.js has no Supabase runtime imports or dead project host', () => {
   assert.match(auth, /from '\.\/api\.js'/);
   assert.match(auth, /syncEnabled/);
   assert.match(auth, /progress_not_found/);
+  assert.match(auth, /resetLocalProgressForNewSession|canonicalEmptyProgress/);
+  assert.match(auth, /putProgress\(empty\)/);
+  assert.doesNotMatch(auth, /putProgress\(local\)/);
   assert.match(auth, /exchangeGoogle|buildGoogleStartUrl|google_exchange/);
   assert.match(auth, /Password reset is temporarily unavailable/);
   assert.doesNotMatch(auth, /Google sign-in is temporarily unavailable/);

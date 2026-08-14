@@ -270,7 +270,7 @@ test('profile/progress helpers never send ownership ids', async () => {
   assert.equal(bodies[1].xp, 2);
 });
 
-test('progress_not_found can be detected by callers for local upload', async () => {
+test('progress_not_found can be detected by callers for empty bootstrap', async () => {
   const client = createApiClient({
     baseUrl: 'http://api.test',
     storage: memoryStorage('r'),
