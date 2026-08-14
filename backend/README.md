@@ -1,23 +1,26 @@
 # Ghost Protocol Backend
 
-Phase 6 companion: PostgreSQL persistence, authentication, user-scoped profile/progress APIs, and Electron client wiring with hardened desktop credential storage.
+PostgreSQL persistence, authentication (email/password + Google OAuth), user-scoped profile/progress APIs, and companion support for Electron + web clients.
+
+**Production:** Railway API at `https://ghost-protocol-production-f7ef.up.railway.app` (Phase 8 operator-verified). Secrets stay in Railway env — never in this README.
 
 ## Implemented
 
-- `pg` pool + SQL migrations (`users`, `sessions`, `profiles`, `user_progress`)
+- `pg` pool + SQL migrations (`users`, `sessions`, `profiles`, `user_progress`, Google columns / OAuth exchanges)
 - Auth endpoints:
   - `POST /auth/register`
   - `POST /auth/login`
   - `POST /auth/refresh`
   - `POST /auth/logout`
   - `GET /auth/me`
+  - Google OAuth start / callback / exchange (`/auth/google*`)
 - User-scoped endpoints (identity from access token only):
   - `GET /me/profile`, `PUT /me/profile`
-  - `GET /me/progress`, `PUT /me/progress`
+  - `GET /me/progress`, `PUT /me/progress` (full-snapshot LWW — not conflict-safe under concurrent clients; WAL-251)
 - Argon2id passwords, JWT access tokens, hashed refresh sessions with rotation
 - `GET /health`, `GET /health/db`
 - Railway-oriented process readiness (`PORT`, production config gate, graceful shutdown)
-- Electron desktop client calls these endpoints (see root `src/api.js` / `src/auth.js`)
+- Electron desktop + web clients call these endpoints (see root `src/api.js` / `src/auth.js`)
 - Desktop refresh persistence uses Electron `safeStorage` via main-process `authSession` (see root `docs/SECURITY.md`)
 
 ## Ownership rule
@@ -25,10 +28,15 @@ Phase 6 companion: PostgreSQL persistence, authentication, user-scoped profile/p
 **CLIENT OWNERSHIP IDENTIFIERS ARE NEVER AUTHORITATIVE.**  
 `/me/*` always scopes to `req.auth.userId` from a verified access token. Body fields like `user_id` / `userId` / `id` are ignored or rejected for unsupported keys.
 
-## Not implemented
+## Not implemented / residuals
 
-- Google OAuth / password reset
-- Railway / Cloudflare / Vercel deployment
+- Password reset
+- Cloudflare / distributed rate limiting
+- Optimistic concurrency for progress (WAL-251)
+- Google email auto-link hardening (**H1** — Phase 9 WP2)
+- ID-token JWKS verification (**M4** — Phase 9 WP3)
+
+See `docs/PHASE-9-AUDIT.md` for the full residual-risk register.
 
 ## Local setup
 

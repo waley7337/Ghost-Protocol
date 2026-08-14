@@ -1,6 +1,12 @@
-# Vercel readiness (Phase 7)
+# Vercel production (web)
 
-Status: **configuration and local production web build only**. No production Vercel project link/deploy in this phase.
+Status: **deployed in production** (operator-verified Phase 8). Public web origin:
+
+`https://ghost-protocol-pi.vercel.app`
+
+API origin (Railway): `https://ghost-protocol-production-f7ef.up.railway.app`
+
+This document describes what ships to Vercel and browser-auth honesty. No secrets.
 
 ## What ships to Vercel
 
@@ -34,30 +40,28 @@ Electron persists refresh tokens via main-process `safeStorage` when available.
 
 The **web** client uses **memory-only** access + refresh tokens (no `localStorage` / `sessionStorage` refresh persistence). Closing the browser tab ends the session. A stronger browser session strategy (httpOnly cookies, BFF, etc.) is **PLANNED**, not implemented.
 
+Google OAuth on web is **IMPLEMENTED** (redirect + exchange). Residual Google email auto-link risk: **H1** in `docs/PHASE-9-AUDIT.md`.
+
 ## CORS
 
-The API allowlists browser origins via backend `FRONTEND_URL` (comma-separated). Before a real deploy, set Railway `FRONTEND_URL` to the Vercel HTTPS origin.
+The API allowlists browser origins via backend `FRONTEND_URL` (comma-separated). Production should include the Vercel HTTPS origin.
 
 ## CSP / headers
 
 - Electron: CSP applied in main via `session.webRequest`
 - Web build: CSP `<meta>` injected into `dist/web/index.html` with `connect-src` including the public API origin
 - `vercel.json` adds `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`
+- **CSP response header** on Vercel is still **PLANNED** (Phase 9 WP5 / M6) — meta CSP alone is the current web control
 
 ## Local verify (no deploy)
 
 ```bash
 export GHOST_API_BASE_URL=http://127.0.0.1:3000
 npm run build:web
-# inspect dist/web ; optional: npm run web:dev
-vercel --version   # CLI present; do not vercel --prod in Phase 7
+npm run web:dev
 ```
 
-## Still required before actual Vercel deployment (Phase 8+)
+## Residuals
 
-1. Private GitHub connected (Phase 7) and Vercel project linked from GitHub
-2. Railway API + Postgres live with production secrets
-3. `GHOST_API_BASE_URL` = Railway HTTPS API URL (Vercel build env)
-4. Railway `FRONTEND_URL` = Vercel HTTPS origin
-5. Confirm CORS + CSP `connect-src` match
-6. Explicit approval to production-deploy
+- Soft unlock if progress sync fails; LWW progress (no concurrent-edit claims).
+- Full Phase 9 register: `docs/PHASE-9-AUDIT.md`.

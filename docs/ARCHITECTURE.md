@@ -1,6 +1,6 @@
 # Ghost Protocol Architecture
 
-Status: Phase 7 web + Vercel readiness complete (local; no production deploy). This document describes the **current** runtime system, what is **implemented**, and the **target** system. Items marked planned are not implemented yet.
+Status: **Production deployed** (Phase 8 operator acceptance 2026-08-14). Web on Vercel, API + PostgreSQL on Railway. Phase 9 WP1 documents residual risks — see `docs/PHASE-9-AUDIT.md`. Items marked planned are not implemented yet.
 
 Ghost Protocol is a single-user-scoped learning application (not multi-tenant). Private resources are owned by the authenticated user:
 
@@ -13,28 +13,30 @@ User
 
 ---
 
-## Current architecture (Phase 7)
+## Current architecture (production)
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │ ELECTRON DESKTOP APP                                              │
 │ Renderer → narrow preload → Main (safeStorage refresh)            │
+│ Google OAuth: openExternal + ghost-protocol://auth/callback       │
 └───────────────────────────────┬──────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────────┐
-│ WEB STATIC SPA (Vercel-ready dist/web)                            │
+│ WEB STATIC SPA (Vercel: ghost-protocol-pi.vercel.app)             │
 │ Same UI; access+refresh memory-only (no localStorage refresh)     │
 └───────────────────────────────┬──────────────────────────────────┘
-                                │ HTTP(S) JSON (Authorization: Bearer)
+                                │ HTTPS JSON (Authorization: Bearer)
                                 ▼
                  ┌──────────────────────────────┐
                  │  GHOST PROTOCOL BACKEND API  │
+                 │  Railway production service  │
                  │  CORS allowlist FRONTEND_URL │
                  │  /auth/*  /me/profile        │
                  │  /me/progress                │
                  └──────────────┬───────────────┘
                                 │ DATABASE_URL (server-only)
                                 ▼
-                         PostgreSQL
+                    Railway PostgreSQL
 ```
 
 **Honest status**
@@ -42,14 +44,17 @@ User
 | Item | Status |
 |------|--------|
 | Supabase runtime in Electron/web | **REMOVED / DEPRECATED** (`supabase/` LEGACY/HISTORICAL) |
-| Backend API | **IMPLEMENTED** |
-| Electron client → backend | **IMPLEMENTED** |
+| Backend API | **IMPLEMENTED** + **DEPLOYED** (Railway) |
+| Electron client → backend | **IMPLEMENTED** (packaged default → Railway HTTPS) |
 | Electron credential hardening | **IMPLEMENTED** (Phase 6 — Electron `safeStorage`) |
-| Browser/web client → backend | **IMPLEMENTED** (Phase 7 — memory auth) |
-| Web production build / vercel.json | **IMPLEMENTED** (readiness only; **NOT DEPLOYED**) |
-| Railway / Vercel / Cloudflare deploy | **NOT DEPLOYED** |
-| Google OAuth | **NOT IMPLEMENTED** (UI visible; temporarily unavailable) |
+| Browser/web client → backend | **IMPLEMENTED** (Phase 7 — memory auth) + **DEPLOYED** (Vercel) |
+| Web production build / vercel.json | **IMPLEMENTED** + production deploy |
+| Railway API + Postgres | **DEPLOYED** |
+| Cloudflare DNS / WAF | **NOT DEPLOYED** (planned) |
+| Google OAuth | **IMPLEMENTED** (web + Electron; production operator-verified). Residual **H1** auto-link risk — see Phase 9 audit |
 | Password reset | **NOT IMPLEMENTED** (UI visible; temporarily unavailable) |
+| Concurrent multi-device sync safety | **NOT CLAIMED** — full-snapshot LWW; [WAL-251](https://linear.app/waley-nagdi/issue/WAL-251/add-optimistic-concurrency-protection-to-cross-device-progress) |
+| Public Electron signing/notarization | **NOT CONFIGURED** (**H2** — NO-GO for public desktop distribution) |
 
 ### Electron trust boundary (IMPLEMENTED)
 
@@ -61,7 +66,7 @@ Renderer — UNTRUSTED
         │ narrow contextBridge (ghostDesktop)
         ▼
 Preload — CONTROLLED BRIDGE
-  Explicit authSession.store/load/clear + dormant OAuth hooks
+  Explicit authSession.store/load/clear + Google OAuth begin/callback hooks
   Validated IPC channels only
         │
         ▼
@@ -80,18 +85,19 @@ Main — PRIVILEGED
 | macOS Keychain-backed key material | **PLATFORM-DEPENDENT** — Electron documents Keychain use when encryption is available; unit tests do **not** prove Keychain |
 | Windows DPAPI-backed key material | **PLATFORM-DEPENDENT** — per Electron docs |
 | Linux OS secret store | **PLATFORM-DEPENDENT** — libsecret/kwallet when selected; `basic_text` rejected as unsuitable for persistence |
-| Google OAuth | **PLANNED** |
+| Google OAuth | **IMPLEMENTED** (residual H1 — Phase 9) |
 | Password reset | **PLANNED** |
 
-### Phase 2–5 backend + client (implemented)
+### Phase 2–8 backend + client (implemented)
 
-- PostgreSQL pool, migrations, health endpoints
+- PostgreSQL pool, migrations `001`–`006`, health endpoints
 - Auth: register/login/refresh/logout/me (Argon2id, JWT access, hashed refresh + family reuse revocation)
-- `GET/PUT /me/profile`, `GET/PUT /me/progress` — ownership from `req.auth.userId` only
+- Google OAuth start/callback/exchange
+- `GET/PUT /me/profile`, `GET/PUT /me/progress` — ownership from `req.auth.userId` only; progress is full-snapshot LWW
 - `src/api.js` + `src/auth.js` → backend; concurrent 401s share one in-flight refresh
 - Startup progress sync barrier
 
-Production hosting intent (not deployed yet): **Railway** for Backend API + PostgreSQL. See `docs/RAILWAY.md`.
+**Production hosting:** Railway for Backend API + PostgreSQL; Vercel for static web. Cloudflare still planned. See `docs/RAILWAY.md`, `docs/VERCEL.md`, residual risks in `docs/PHASE-9-AUDIT.md`.
 
 ---
 
@@ -131,21 +137,21 @@ Browser/Electron → HTTPS → Cloudflare → Railway Backend API → Railway Po
 ### Electron trust boundary
 
 1. **Renderer (untrusted relative to the host)** — UI + API client. Access tokens in memory. No Node integration.
-2. **Preload** — frozen `window.ghostDesktop` only: `apiBaseUrl`, `authSession.{store,load,clear}`, dormant `beginOAuth` / `onAuthCallback`.
-3. **Main** — `safeStorage`, fixed-path credential file, navigation locks, HTTPS `openExternal` allowlist, strict `ghost-protocol://auth/callback` validation (OAuth still dormant).
+2. **Preload** — frozen `window.ghostDesktop` only: `apiBaseUrl`, `authSession.{store,load,clear}`, `beginOAuth` / `onAuthCallback`.
+3. **Main** — `safeStorage`, fixed-path credential file, navigation locks, HTTPS `openExternal` allowlist (including Google OAuth start URLs), strict `ghost-protocol://auth/callback` validation.
 
 ### Backend / database / edge
 
-Unchanged from Phase 5: backend is the only component with `DATABASE_URL` and signing secrets. Cloudflare/Vercel remain **PLANNED** for production edge/web hosting.
+Backend is the only component with `DATABASE_URL` and signing secrets. **Vercel** (web) and **Railway** (API + Postgres) are **deployed**. Cloudflare edge/WAF remains **PLANNED**.
 
 ---
 
-## Repository layout (Phase 7)
+## Repository layout
 
 ```
 /
-├── docs/                 # ARCHITECTURE, SECURITY, THREAT_MODEL, RAILWAY, VERCEL
-├── backend/              # API (Railway-intended)
+├── docs/                 # ARCHITECTURE, SECURITY, THREAT_MODEL, RAILWAY, VERCEL, PHASE-*-*
+├── backend/              # API (Railway production)
 ├── electron/             # main, preload, security helpers
 ├── index.html            # shared UI (Electron + web)
 ├── src/                  # api.js + auth.js + platform.js

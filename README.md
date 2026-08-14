@@ -13,24 +13,24 @@ Ghost Protocol preserves the original dashboard, missions, quizzes, XP mechanics
 ```
 ┌──────────────────────────┐     ┌──────────────────────────┐
 │  Electron desktop app    │     │  Web (static SPA)        │
-│  Renderer → preload →    │     │  Browser (Vercel-ready)  │
+│  Renderer → preload →    │     │  Browser (Vercel)        │
 │  main (safeStorage)      │     │  Memory-only auth tokens │
 └────────────┬─────────────┘     └────────────┬─────────────┘
              │ HTTPS JSON                     │ HTTPS JSON
              └──────────────┬─────────────────┘
                             ▼
                  ┌──────────────────────┐
-                 │ Ghost Protocol API   │  (Railway-intended)
+                 │ Ghost Protocol API   │  (Railway production)
                  │ Auth + profile +     │
                  │ progress             │
                  └──────────┬───────────┘
                             ▼
-                     PostgreSQL
+                     Railway PostgreSQL
 ```
 
 Neither the browser nor Electron talks to PostgreSQL directly. Server secrets (`DATABASE_URL`, `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET`) stay on the API host only.
 
-See `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, and `docs/THREAT_MODEL.md`.
+See `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/THREAT_MODEL.md`, and Phase 9 residuals in `docs/PHASE-9-AUDIT.md`.
 
 ## Security highlights
 
@@ -43,15 +43,17 @@ See `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, and `docs/THREAT_MODEL.md`.
 | Access tokens | **Memory-only** on both platforms |
 | Backend Argon2id + JWT access + hashed refresh rotation | **IMPLEMENTED** |
 | CORS allowlist via `FRONTEND_URL` | **IMPLEMENTED** (browser) |
-| CSP (Electron main + web build meta) | **IMPLEMENTED** |
-| Google OAuth / password reset | **PLANNED** (UI visible; temporarily unavailable) |
+| CSP (Electron main + web build meta) | **IMPLEMENTED** (Vercel CSP **header** still planned) |
+| Google OAuth | **IMPLEMENTED** (web + Electron; residual H1 auto-link — see Phase 9) |
+| Password reset | **PLANNED** (UI visible; temporarily unavailable) |
+| Public Electron signing / notarization | **NOT CONFIGURED** (NO-GO for public desktop) |
 
 ## Stack
 
 - **Desktop:** Electron 37, context-isolated renderer, electron-builder
-- **Web:** Static SPA (`index.html` + `assets/`), Vercel-ready output in `dist/web`
-- **API:** Node.js HTTP server under `backend/`
-- **DB:** PostgreSQL (local or Railway-intended)
+- **Web:** Static SPA (`index.html` + `assets/`), Vercel production at `https://ghost-protocol-pi.vercel.app`
+- **API:** Node.js HTTP server under `backend/` on Railway (`https://ghost-protocol-production-f7ef.up.railway.app`)
+- **DB:** Railway PostgreSQL
 - **Client auth modules:** `src/api.js`, `src/auth.js`, `src/platform.js` → `assets/auth.bundle.js`
 
 ## Status: IMPLEMENTED vs PLANNED
@@ -63,12 +65,14 @@ See `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, and `docs/THREAT_MODEL.md`.
 | Electron ↔ backend wiring | **IMPLEMENTED** |
 | Electron credential hardening (Phase 6) | **IMPLEMENTED** |
 | Browser/web client parity (same UI, memory auth) | **IMPLEMENTED** (Phase 7) |
-| Web production build + `vercel.json` | **IMPLEMENTED** (config/readiness only) |
-| Private GitHub remote | **Phase 7** (when authenticated) |
-| Railway Postgres + API deploy | **PLANNED** (not deployed) |
-| Vercel production deploy | **PLANNED** (not deployed) |
+| Web production build + `vercel.json` | **IMPLEMENTED** + **DEPLOYED** |
+| Railway Postgres + API deploy | **DEPLOYED** |
+| Vercel production deploy | **DEPLOYED** |
 | Cloudflare DNS / WAF | **PLANNED** |
-| Google OAuth / password reset | **PLANNED** |
+| Google OAuth | **IMPLEMENTED** (residual account-link risk H1) |
+| Password reset | **PLANNED** |
+| Conflict-safe concurrent multi-device sync | **PLANNED** (WAL-251; LWW today) |
+| Public signed/notarized Electron | **PLANNED** (Phase 10; H2 blocker) |
 
 ## Requirements
 
@@ -155,17 +159,18 @@ npm run build:linux
 
 Artifacts: web → `dist/web/`; desktop → `release/`. Public desktop distribution still requires platform signing credentials.
 
-## Deployment architecture (intent — not deployed in Phase 7)
+## Deployment architecture (production)
 
 ```
-Internet → Cloudflare (planned) → Vercel static web (planned)
-                                → Railway API + Postgres (planned)
+Internet → Cloudflare (planned) → Vercel static web (deployed)
+                                → Railway API + Postgres (deployed)
 Electron / browser ──HTTPS──► Railway API ──► Postgres
 ```
 
-- **Vercel:** static web only (`vercel.json`, `npm run build:web`). No production deploy in Phase 7.
-- **Railway:** backend + Postgres. See `docs/RAILWAY.md`.
-- **Docs:** `docs/VERCEL.md` for web readiness checklist.
+- **Vercel:** static web — `https://ghost-protocol-pi.vercel.app` (`vercel.json`, `npm run build:web`). See `docs/VERCEL.md`.
+- **Railway:** backend + Postgres — `https://ghost-protocol-production-f7ef.up.railway.app`. See `docs/RAILWAY.md`.
+- **Desktop:** packaged builds may target Railway; **public** distribution requires signing/notarization (not configured — see `docs/PHASE-9-AUDIT.md`).
+- **Honesty:** Sequential cross-device sync works; concurrent multi-device conflict safety is **not** claimed (WAL-251).
 
 ## License
 

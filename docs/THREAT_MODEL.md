@@ -79,7 +79,7 @@ Renderer ──IPC──► preload/main
 
 - **Threat:** Cross-site requests perform state-changing actions using browser-sent credentials.
 - **Planned mitigations:** If cookie-based sessions are used, require CSRF defenses or same-site cookie strategy plus CORS restrictions. If Authorization headers from non-simple requests are used, document CSRF residual risk carefully.
-- **Current:** N/A for first-party API (not built). Desktop app is not a classic CSRF browser origin, but web deployment will be.
+- **Current:** Bearer `Authorization` header auth (not cookie sessions). CORS allowlists `FRONTEND_URL`. Residual CSRF surface is limited vs cookie auth; stronger browser session strategies (cookies/BFF) remain PLANNED and would need CSRF defenses.
 
 ### Broken object-level authorization (BOLA)
 
@@ -96,7 +96,7 @@ Renderer ──IPC──► preload/main
 ### Malicious IPC input
 
 - **Threat:** Compromised/rogue renderer invokes preload/main with dangerous URLs or payloads.
-- **Current (Phase 6):** Explicit IPC allowlist; trusted-sender checks; typed/length-limited credential IPC; semantic `SESSION_*` errors; OAuth open denied (not configured); strict auth deep-link parsing.
+- **Current (Phase 6+):** Explicit IPC allowlist; trusted-sender checks; typed/length-limited credential IPC; semantic `SESSION_*` errors; Google OAuth open only for allowlisted HTTPS API `/auth/google` start URLs; strict auth deep-link parsing.
 - **Planned:** Keep IPC minimal as features grow; deny unexpected channels.
 
 ### Unsafe external navigation
@@ -115,7 +115,7 @@ Renderer ──IPC──► preload/main
 
 - **Threat:** Attacker obtains DB credentials or dumps tables.
 - **Planned mitigations:** Least-privilege roles, network restrictions, encrypted transport, hashed passwords (Argon2id), limited secrets in DB, backups access control.
-- **Current:** No first-party PostgreSQL deployment in this repo phase.
+- **Current:** First-party PostgreSQL on Railway (server-side `DATABASE_URL` only). TLS defaults + private-mesh exception documented in `docs/RAILWAY.md` / `docs/SECURITY.md`.
 
 ### Progress tampering
 
@@ -129,6 +129,12 @@ Renderer ──IPC──► preload/main
 
 - Refresh at-rest protection depends on Electron `safeStorage` availability and platform backend quality (Linux `basic_text` is rejected; other backends are PLATFORM-DEPENDENT).
 - Monolithic inline scripts require CSP `'unsafe-inline'` for scripts/styles.
-- Desktop and web clients can always manipulate local progress offline; integrity guarantees apply to **server-stored** progress.
-- Backend/API hosting is not deployed to Railway/Cloudflare/Vercel in this phase.
+- Desktop and web clients can always manipulate local progress offline; integrity guarantees apply to **server-stored** progress (client-trusted XP/solved within bounds — accepted learning-app residual).
+- Progress sync is full-snapshot **last-write-wins**; concurrent multi-device edits can clobber — do not claim conflict-safe sync until WAL-251.
+- Google OAuth email auto-link can attach `google_sub` to a pre-registered unverified password account (**H1** — Phase 9 WP2).
+- Public Electron builds are unsigned / not notarized (**H2**) and carry Electron audit High findings (**H3**) — **NO-GO for public desktop distribution**.
+- Web CSP is meta-injected; Vercel CSP **response header** still planned.
+- In-process rate limiting is not distributed abuse protection; Cloudflare/WAF still planned.
 - Windows DPAPI does not isolate secrets from other apps in the same user session (per Electron/Windows model).
+
+Full Phase 9 register: `docs/PHASE-9-AUDIT.md`.

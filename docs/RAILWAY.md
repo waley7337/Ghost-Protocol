@@ -1,15 +1,19 @@
-# Railway production architecture (prepared, not deployed)
+# Railway production architecture
 
-Status: **documented readiness only**. No Railway project, service, database, domain, Cloudflare, or Vercel wiring has been created by this repository phase.
+Status: **deployed in production** (operator-verified Phase 8). Public API origin:
 
-## Target production trust path
+`https://ghost-protocol-production-f7ef.up.railway.app`
+
+This document describes the trust path, readiness controls in code, and remaining residuals (Cloudflare, TLS caveats). It does **not** contain secrets.
+
+## Production trust path
 
 ```
-Vercel Web Client
+Vercel Web Client (ghost-protocol-pi.vercel.app)
         │
         │ HTTPS
         ▼
-Cloudflare / public API boundary
+Public API boundary (Cloudflare / WAF still PLANNED)
         │
         ▼
 Railway Backend API
@@ -38,50 +42,26 @@ Hard rule: neither Vercel client code nor Electron may connect directly to Postg
 | PostgreSQL pool closed on SIGINT/SIGTERM | Implemented |
 | Start command | `npm start` (`node src/app.js`) |
 | No Docker required for Railway Nixpacks/node deploy | Intentional |
+| Migrations `001`–`006` | Applied in production (Phase 8 ops) |
 
-## Recommended Railway setup (later deployment phase)
+## Production checklist (ops — no secrets here)
 
-1. Create a Railway project.
-2. Add a **PostgreSQL** plugin/service.
-3. Add a **backend** service from this GitHub repo with:
-   - **Root Directory:** `backend`
-   - **Start Command:** `npm start` (or Railway default detecting `package.json` scripts)
-   - **Watch/build:** `npm install` in `backend`
-4. Set backend variables:
-   - `NODE_ENV=production`
-   - `DATABASE_URL=${{Postgres.DATABASE_URL}}` (private/internal URL preferred)
-   - `ACCESS_TOKEN_SECRET` / `REFRESH_TOKEN_SECRET` (long random values, ≥32 chars)
-   - `FRONTEND_URL` / `API_PUBLIC_URL` when CORS and redirects exist
-5. Run migrations once from a secure operator context:
-   - `npm run db:migrate` against the Railway DB using a one-off/run command or CI job with server-side credentials
-6. Expose the backend HTTP service publicly (Railway domain), then place Cloudflare in front later.
-7. Verify `/health`, `/health/db`, and auth endpoints (`/auth/register`, `/auth/login`) over HTTPS.
+1. Railway project with PostgreSQL + backend service (`Root Directory: backend`).
+2. Server-only vars: `DATABASE_URL`, `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET`, Google OAuth server vars, `FRONTEND_URL` (Vercel origin allowlist).
+3. Public health: `GET /health`, `GET /health/db`.
+4. Clients use the public HTTPS API origin only — never Postgres.
 
 Do **not** set `DATABASE_URL`, `VITE_DATABASE_URL`, or `NEXT_PUBLIC_DATABASE_URL` on Vercel or in Electron.
 
-## PostgreSQL TLS behavior
+## TLS notes
 
-| Environment | Default TLS | Certificate validation |
-|-------------|-------------|------------------------|
-| `NODE_ENV=development` | Off unless `DATABASE_SSL=require` or URL `sslmode=require` | N/A when TLS off |
-| `NODE_ENV=production` + public DB host | On | `rejectUnauthorized: true` by default |
-| `NODE_ENV=production` + `*.railway.internal` (private mesh) | Off (unless `DATABASE_SSL=require`) | N/A when TLS off |
+- Prefer Railway's **private** `DATABASE_URL` (`*.railway.internal`) between API and Postgres. Private-mesh hosts skip TLS by default because they do not present publicly verifiable certificates; this is not a public-network MITM tradeoff.
+- Public proxy URLs still default to TLS with certificate validation.
+- `DATABASE_SSL_REJECT_UNAUTHORIZED=false` is an **explicit weakening only**; document residual MITM risk if used.
 
-Optional:
+## Residuals (Phase 9)
 
-- `DATABASE_SSL=require|disable` — explicit override
-- `DATABASE_SSL_CA=/path/to/ca.pem` — trust a provided CA while keeping validation on
-- `DATABASE_SSL_REJECT_UNAUTHORIZED=false` — **explicit weakening only**; document residual MITM risk if Railway's presented certificate cannot be validated with a CA yet
-
-Prefer Railway's **private** `DATABASE_URL` (`*.railway.internal`) between API and Postgres. Private-mesh hosts skip TLS by default because they do not present publicly verifiable certificates; this is not a public-network MITM tradeoff. Public proxy URLs still default to TLS with certificate validation. This project does **not** default to disabling certificate validation merely to make a public Railway proxy connect.
-
-## What remains for a later Railway deployment phase
-
-- Create Railway project + Postgres + backend service
-- Connect GitHub repo / set Root Directory to `backend`
-- Inject `DATABASE_URL` via Railway variable reference
-- Decide public networking + Cloudflare DNS/proxy
-- Run migrations against Railway Postgres
-- Confirm `/health` and `/health/db` from the public URL
-- Add auth secrets and CORS origins after Phase 3+
-- Wire Vercel + Electron to the public API URL only (never to Postgres)
+- Cloudflare / WAF in front of the API: still **PLANNED**.
+- In-process rate limits only (not distributed).
+- Do not claim conflict-safe concurrent multi-device sync (WAL-251).
+- Full residual register: `docs/PHASE-9-AUDIT.md`.
