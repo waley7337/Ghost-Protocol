@@ -117,13 +117,9 @@ function createMemoryPool() {
       return { rows: [] };
     }
 
+    // Auto-link UPDATE path removed (H1 / WP2); keep no-op mismatch if an old query appears.
     if (sql.startsWith('UPDATE users SET google_sub')) {
-      const user = users.get(params[0]);
-      if (user && user.google_sub == null) {
-        user.google_sub = params[1];
-        user.email_verified = true;
-      }
-      return { rows: [] };
+      throw new Error('google_sub auto-link UPDATE must not be used');
     }
 
     if (sql.startsWith('SELECT id, email, email_verified, created_at FROM users WHERE id')) {
@@ -261,7 +257,7 @@ test('assertGoogleIdentity requires verified email, iss, aud, sub', () => {
   );
 });
 
-test('Google sign-up creates passwordless user; sign-in reuses google_sub', async () => {
+test('existing linked Google identity signs in without creating a second user', async () => {
   const pool = createMemoryPool();
   const first = await findOrCreateGoogleUser(pool, {
     googleSub: 'sub-new',
@@ -283,37 +279,203 @@ test('Google sign-up creates passwordless user; sign-in reuses google_sub', asyn
     picture: null
   });
   assert.equal(second.created, false);
+  assert.equal(second.linked, false);
   assert.equal(second.user.id, first.user.id);
+  assert.equal([...pool._users.values()].length, 1);
 });
 
-test('duplicate email links google_sub once; never second account; mismatch rejected', async () => {
+test('new Google identity with unused email creates passwordless Google-backed account', async () => {
+  const pool = createMemoryPool();
+  const created = await findOrCreateGoogleUser(pool, {
+    googleSub: 'sub-fresh',
+    email: 'fresh@example.com',
+    name: 'Fresh',
+    picture: null
+  });
+  assert.equal(created.created, true);
+  assert.equal(created.linked, false);
+  assert.equal(created.user.email, 'fresh@example.com');
+  assert.equal([...pool._users.values()][0].google_sub, 'sub-fresh');
+  assert.equal([...pool._users.values()][0].password_hash, null);
+});
+
+test('existing password account with matching Google email refuses auto-link', async () => {
   const pool = createMemoryPool();
   await pool.query(
     `INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, email_verified, created_at`,
     ['dup@example.com', '$argon2id$existing']
   );
 
-  const linked = await findOrCreateGoogleUser(pool, {
-    googleSub: 'sub-link',
-    email: 'dup@example.com',
-    name: null,
-    picture: null
-  });
-  assert.equal(linked.created, false);
-  assert.equal(linked.linked, true);
-  assert.equal([...pool._users.values()].length, 1);
-  assert.equal([...pool._users.values()][0].google_sub, 'sub-link');
-
   await assert.rejects(
     () =>
       findOrCreateGoogleUser(pool, {
-        googleSub: 'other-sub',
+        googleSub: 'sub-link',
         email: 'dup@example.com',
         name: null,
         picture: null
       }),
-    (error) => error.code === 'google_account_mismatch'
+    (error) =>
+      error.code === 'account_conflict' &&
+      /existing method/i.test(error.message) &&
+      !/password|unverified|google_sub/i.test(error.message)
   );
+
+  const row = [...pool._users.values()][0];
+  assert.equal(row.google_sub, null);
+  assert.equal(row.email_verified, false);
+  assert.equal(row.password_hash, '$argon2id$existing');
+  assert.equal([...pool._users.values()].length, 1);
+});
+
+test('normalized case-insensitive email collision refuses auto-link', async () => {
+  const pool = createMemoryPool();
+  await pool.query(
+    `INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, email_verified, created_at`,
+    ['victim@example.com', '$argon2id$existing']
+  );
+
+  await assert.rejects(
+    () =>
+      findOrCreateGoogleUser(pool, {
+        googleSub: 'sub-case',
+        email: 'Victim@Example.com',
+        name: null,
+        picture: null
+      }),
+    (error) => error.code === 'account_conflict'
+  );
+
+  // assertGoogleIdentity normalizes before findOrCreate; exercise that path too.
+  const config = googleConfig();
+  const identity = assertGoogleIdentity(config, {
+    iss: 'https://accounts.google.com',
+    aud: config.googleClientId,
+    sub: 'sub-case-2',
+    email: 'VICTIM@EXAMPLE.COM',
+    email_verified: true
+  });
+  assert.equal(identity.email, 'victim@example.com');
+  await assert.rejects(
+    () => findOrCreateGoogleUser(pool, identity),
+    (error) => error.code === 'account_conflict'
+  );
+  assert.equal([...pool._users.values()][0].google_sub, null);
+});
+
+test('email already linked to a different Google subject returns neutral conflict', async () => {
+  const pool = createMemoryPool();
+  await findOrCreateGoogleUser(pool, {
+    googleSub: 'sub-original',
+    email: 'taken@example.com',
+    name: null,
+    picture: null
+  });
+
+  await assert.rejects(
+    () =>
+      findOrCreateGoogleUser(pool, {
+        googleSub: 'sub-other',
+        email: 'taken@example.com',
+        name: null,
+        picture: null
+      }),
+    (error) => error.code === 'account_conflict'
+  );
+  assert.equal([...pool._users.values()].length, 1);
+  assert.equal([...pool._users.values()][0].google_sub, 'sub-original');
+});
+
+test('repeated callbacks / unique race reuses google_sub winner; never auto-links password row', async () => {
+  const pool = createMemoryPool();
+
+  const [a, b] = await Promise.all([
+    findOrCreateGoogleUser(pool, {
+      googleSub: 'sub-race',
+      email: 'race@example.com',
+      name: null,
+      picture: null
+    }),
+    findOrCreateGoogleUser(pool, {
+      googleSub: 'sub-race',
+      email: 'race@example.com',
+      name: null,
+      picture: null
+    })
+  ]);
+
+  assert.equal(a.user.id, b.user.id);
+  assert.equal([...pool._users.values()].length, 1);
+  assert.equal([...pool._users.values()][0].google_sub, 'sub-race');
+
+  await pool.query(
+    `INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, email_verified, created_at`,
+    ['race-pass@example.com', '$argon2id$existing']
+  );
+
+  // Simulate INSERT unique race against existing email: first create would 23505.
+  await assert.rejects(
+    () =>
+      findOrCreateGoogleUser(pool, {
+        googleSub: 'sub-race-pass',
+        email: 'race-pass@example.com',
+        name: null,
+        picture: null
+      }),
+    (error) => error.code === 'account_conflict'
+  );
+  assert.equal(
+    [...pool._users.values()].find((u) => u.email === 'race-pass@example.com').google_sub,
+    null
+  );
+});
+
+test('complete Google OAuth issues no session on account conflict', async () => {
+  const config = googleConfig();
+  const pool = createMemoryPool();
+  await pool.query(
+    `INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, email_verified, created_at`,
+    ['conflict@example.com', '$argon2id$existing']
+  );
+
+  const state = await signOAuthState(config, {
+    typ: 'google_oauth_state',
+    nonce: 'n-conflict',
+    returnTo: 'https://ghost-protocol-pi.vercel.app/',
+    platform: 'web'
+  });
+
+  const fetchImpl = async () => ({
+    ok: true,
+    async json() {
+      return {
+        id_token: fakeIdToken({
+          iss: 'https://accounts.google.com',
+          aud: config.googleClientId,
+          sub: 'sub-conflict',
+          email: 'conflict@example.com',
+          email_verified: true,
+          exp: Math.floor(Date.now() / 1000) + 3600
+        })
+      };
+    }
+  });
+
+  const completed = await completeGoogleOAuth(pool, config, {
+    code: 'auth-code',
+    state,
+    fetchImpl
+  });
+
+  const redirect = new URL(completed.redirectTo);
+  assert.equal(redirect.searchParams.get('google_error'), 'account_conflict');
+  assert.match(
+    redirect.searchParams.get('google_error_message') || '',
+    /existing method/i
+  );
+  assert.equal(redirect.searchParams.get('google_exchange'), null);
+  assert.equal(pool._sessions.size, 0);
+  assert.equal(pool._exchanges.size, 0);
+  assert.equal([...pool._users.values()][0].google_sub, null);
 });
 
 test('complete Google OAuth issues exchange code and session tokens', async () => {

@@ -7,12 +7,30 @@
 
 const crypto = require('node:crypto');
 const { SignJWT, jwtVerify } = require('jose');
-const { query, DatabaseError } = require('../db');
+const { query, DatabaseError, withTransaction } = require('../db');
 const { AppError } = require('../errors');
 const { isGoogleOAuthConfigured } = require('../config');
 const { parseAllowedOrigins } = require('../middleware/cors');
 const { createSession } = require('./sessions');
 const { normalizeEmail, publicUser } = require('./users');
+
+/** Neutral conflict — do not reveal whether the existing account is password or Google-linked. */
+const ACCOUNT_CONFLICT_MESSAGE =
+  'An account already exists for this email. Sign in using your existing method.';
+
+function accountConflictError() {
+  return new AppError(ACCOUNT_CONFLICT_MESSAGE, {
+    status: 409,
+    code: 'account_conflict'
+  });
+}
+
+function isUniqueViolation(error) {
+  return (
+    (error instanceof DatabaseError && error.code === '23505') ||
+    error?.code === '23505'
+  );
+}
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -270,119 +288,121 @@ async function exchangeCodeWithGoogle(config, code, { fetchImpl = fetch } = {}) 
 }
 
 /**
- * Account resolution:
- * 1) Match google_sub → sign-in
- * 2) Match email → link google_sub if unset (Google verified email; never duplicate email)
+ * Account resolution (Phase 9 WP2 / H1 — no email auto-link):
+ * 1) Match google_sub → sign-in (preserve already-linked Google users)
+ * 2) Match email for a *different* / unlinked account → refuse (neutral account_conflict)
  * 3) Else create passwordless user with google_sub
- * Never create a second account for the same email. Never overwrite a different google_sub.
+ *
+ * Never attach a new Google identity to an existing account solely because emails match.
+ * Explicit authenticated linking is intentionally out of scope (track separately).
+ * Decision runs in a transaction; unique(email)/unique(google_sub) races re-resolve
+ * without auto-linking.
  */
-async function findOrCreateGoogleUser(pool, identity) {
-  const bySub = await query(
-    pool,
-    `SELECT id, email, password_hash, email_verified, google_sub, created_at
-     FROM users
-     WHERE google_sub = $1
-     LIMIT 1`,
-    [identity.googleSub]
-  );
-  if (bySub.rows[0]) {
-    const user = bySub.rows[0];
-    if (user.email !== identity.email) {
-      // Keep historical email; do not silently rewrite on conflict with another account.
-      const emailOwner = await query(
-        pool,
-        `SELECT id FROM users WHERE email = $1 AND id <> $2 LIMIT 1`,
-        [identity.email, user.id]
-      );
-      if (emailOwner.rows[0]) {
-        throw new AppError('Google account email conflicts with an existing account', {
-          status: 409,
-          code: 'google_email_conflict'
-        });
-      }
-    }
-    if (!user.email_verified) {
-      await query(
-        pool,
-        `UPDATE users SET email_verified = TRUE, updated_at = now() WHERE id = $1`,
-        [user.id]
-      );
-      user.email_verified = true;
-    }
-    return { user: publicUser(user), created: false, linked: false };
-  }
-
-  const byEmail = await query(
-    pool,
-    `SELECT id, email, password_hash, email_verified, google_sub, created_at
-     FROM users
-     WHERE email = $1
-     LIMIT 1`,
-    [identity.email]
-  );
-
-  if (byEmail.rows[0]) {
-    const existing = byEmail.rows[0];
-    if (existing.google_sub && existing.google_sub !== identity.googleSub) {
-      throw new AppError('This email is already linked to a different Google account', {
-        status: 409,
-        code: 'google_account_mismatch'
-      });
-    }
-    if (!existing.google_sub) {
-      // Safe link: Google asserts verified ownership of this email. No second account.
-      try {
-        await query(
-          pool,
-          `UPDATE users
-           SET google_sub = $2,
-               email_verified = TRUE,
-               updated_at = now()
-           WHERE id = $1 AND google_sub IS NULL`,
-          [existing.id, identity.googleSub]
-        );
-      } catch (error) {
-        if (
-          (error instanceof DatabaseError && error.code === '23505') ||
-          error?.code === '23505'
-        ) {
-          throw new AppError('Google account is already linked', {
-            status: 409,
-            code: 'google_already_linked'
-          });
-        }
-        throw error;
-      }
-      existing.google_sub = identity.googleSub;
-      existing.email_verified = true;
-      return { user: publicUser(existing), created: false, linked: true };
-    }
-    return { user: publicUser(existing), created: false, linked: false };
-  }
-
-  let inserted;
-  try {
-    inserted = await query(
-      pool,
-      `INSERT INTO users (email, password_hash, email_verified, google_sub)
-       VALUES ($1, NULL, TRUE, $2)
-       RETURNING id, email, email_verified, google_sub, created_at`,
-      [identity.email, identity.googleSub]
+async function signInExistingGoogleUser(client, user, identity) {
+  if (user.email !== identity.email) {
+    // Keep historical email; do not silently rewrite on conflict with another account.
+    const emailOwner = await query(
+      client,
+      `SELECT id FROM users WHERE email = $1 AND id <> $2 LIMIT 1`,
+      [identity.email, user.id]
     );
-  } catch (error) {
-    if (
-      (error instanceof DatabaseError && error.code === '23505') ||
-      error?.code === '23505'
-    ) {
-      throw new AppError('Unable to create account with that Google identity', {
+    if (emailOwner.rows[0]) {
+      throw new AppError('Google account email conflicts with an existing account', {
         status: 409,
-        code: 'google_account_conflict'
+        code: 'google_email_conflict'
       });
+    }
+  }
+  if (!user.email_verified) {
+    await query(
+      client,
+      `UPDATE users SET email_verified = TRUE, updated_at = now() WHERE id = $1`,
+      [user.id]
+    );
+    user.email_verified = true;
+  }
+  return { user: publicUser(user), created: false, linked: false };
+}
+
+async function resolveGoogleUserAfterUniqueRace(pool, identity) {
+  return withTransaction(pool, async (client) => {
+    const bySub = await query(
+      client,
+      `SELECT id, email, password_hash, email_verified, google_sub, created_at
+       FROM users
+       WHERE google_sub = $1
+       LIMIT 1
+       FOR UPDATE`,
+      [identity.googleSub]
+    );
+    if (bySub.rows[0]) {
+      return signInExistingGoogleUser(client, bySub.rows[0], identity);
+    }
+    // Email or google_sub lost a race to another row — never auto-link.
+    throw accountConflictError();
+  });
+}
+
+async function findOrCreateGoogleUser(pool, identity) {
+  const email = normalizeEmail(identity.email);
+  if (!email) {
+    throw new AppError('Google account email is required', {
+      status: 400,
+      code: 'google_email_missing'
+    });
+  }
+  const normalizedIdentity = { ...identity, email };
+
+  try {
+    return await withTransaction(pool, async (client) => {
+      const bySub = await query(
+        client,
+        `SELECT id, email, password_hash, email_verified, google_sub, created_at
+         FROM users
+         WHERE google_sub = $1
+         LIMIT 1
+         FOR UPDATE`,
+        [normalizedIdentity.googleSub]
+      );
+      if (bySub.rows[0]) {
+        return signInExistingGoogleUser(client, bySub.rows[0], normalizedIdentity);
+      }
+
+      const byEmail = await query(
+        client,
+        `SELECT id, email, password_hash, email_verified, google_sub, created_at
+         FROM users
+         WHERE email = $1
+         LIMIT 1
+         FOR UPDATE`,
+        [normalizedIdentity.email]
+      );
+
+      if (byEmail.rows[0]) {
+        const existing = byEmail.rows[0];
+        if (existing.google_sub === normalizedIdentity.googleSub) {
+          return signInExistingGoogleUser(client, existing, normalizedIdentity);
+        }
+        // Password account, different Google subject, or any other email occupant:
+        // never auto-link; never issue a session for this Google identity.
+        throw accountConflictError();
+      }
+
+      const inserted = await query(
+        client,
+        `INSERT INTO users (email, password_hash, email_verified, google_sub)
+         VALUES ($1, NULL, TRUE, $2)
+         RETURNING id, email, email_verified, google_sub, created_at`,
+        [normalizedIdentity.email, normalizedIdentity.googleSub]
+      );
+      return { user: publicUser(inserted.rows[0]), created: true, linked: false };
+    });
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      return resolveGoogleUserAfterUniqueRace(pool, normalizedIdentity);
     }
     throw error;
   }
-
-  return { user: publicUser(inserted.rows[0]), created: true, linked: false };
 }
 
 async function maybeSeedGoogleProfile(pool, userId, identity) {

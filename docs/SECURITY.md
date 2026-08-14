@@ -91,7 +91,7 @@ Semantic credential errors only: `SESSION_UNAVAILABLE`, `SESSION_STORAGE_FAILED`
 - Accepted shape only: `ghost-protocol://auth/callback` (+ optional query), max length enforced
 - Rejects wrong host/path, userinfo, ports, malformed URLs
 - Forwarding a callback **does not** authenticate the user; renderer must complete exchange with the API
-- Google OAuth is **IMPLEMENTED** (web redirect + Electron `openExternal` + deep-link callback). Residual account-linking risk: **H1** in `docs/PHASE-9-AUDIT.md`
+- Google OAuth is **IMPLEMENTED** (web redirect + Electron `openExternal` + deep-link callback). **H1** Google email auto-link: **fixed in code** (`findOrCreateGoogleUser` refuses email-only attach; neutral `account_conflict`) — **pending production verification**; see `docs/PHASE-9-AUDIT.md`
 
 ### Content Security Policy (Electron session)
 
@@ -142,7 +142,7 @@ The retained SQL under `supabase/` is **LEGACY/HISTORICAL**. It is not used by t
 
 - Password reset with safe, time-limited tokens
 - Email verification workflow (register still creates unverified password users)
-- Harden Google email auto-link (**H1** / Phase 9 WP2)
+- Explicit authenticated Google account linking UI (after H1 conflict path; not auto-link)
 - Google ID token JWKS verification + safer exchange delivery (Phase 9 WP3)
 - Optimistic concurrency for progress sync (**WAL-251** — required before concurrent multi-device sync *claims*)
 - Distributed / Cloudflare edge rate limiting and bot protections
@@ -161,7 +161,7 @@ Full register: `docs/PHASE-9-AUDIT.md`. Approved position: **Conditional GO** fo
 
 | ID | Risk | Status |
 |----|------|--------|
-| H1 | Google email auto-link pre-hijack | Open release blocker |
+| H1 | Google email auto-link pre-hijack | Fixed in code — pending production verification |
 | H2 | Unsigned / not-notarized Electron | Open — blocks public desktop |
 | H3 | Electron / root npm audit High CVEs | Open — blocks wide public desktop |
 | M1 / WAL-251 | Full-snapshot LWW progress | Claims blocker; sequential use accepted |

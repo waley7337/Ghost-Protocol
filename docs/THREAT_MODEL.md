@@ -131,7 +131,7 @@ Renderer ──IPC──► preload/main
 - Monolithic inline scripts require CSP `'unsafe-inline'` for scripts/styles.
 - Desktop and web clients can always manipulate local progress offline; integrity guarantees apply to **server-stored** progress (client-trusted XP/solved within bounds — accepted learning-app residual).
 - Progress sync is full-snapshot **last-write-wins**; concurrent multi-device edits can clobber — do not claim conflict-safe sync until WAL-251.
-- Google OAuth email auto-link can attach `google_sub` to a pre-registered unverified password account (**H1** — Phase 9 WP2).
+- Google OAuth never attaches a new `google_sub` to an existing account solely because emails match (**H1** — Phase 9 WP2: fixed in code, pending production verification). Explicit authenticated linking remains a follow-up.
 - Public Electron builds are unsigned / not notarized (**H2**) and carry Electron audit High findings (**H3**) — **NO-GO for public desktop distribution**.
 - Web CSP is meta-injected; Vercel CSP **response header** still planned.
 - In-process rate limiting is not distributed abuse protection; Cloudflare/WAF still planned.

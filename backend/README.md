@@ -33,7 +33,7 @@ PostgreSQL persistence, authentication (email/password + Google OAuth), user-sco
 - Password reset
 - Cloudflare / distributed rate limiting
 - Optimistic concurrency for progress (WAL-251)
-- Google email auto-link hardening (**H1** — Phase 9 WP2)
+- Google email auto-link hardening (**H1** — Phase 9 WP2): code refuse path in place; production verification pending; explicit authenticated linking UI still planned
 - ID-token JWKS verification (**M4** — Phase 9 WP3)
 
 See `docs/PHASE-9-AUDIT.md` for the full residual-risk register.

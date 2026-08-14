@@ -40,7 +40,7 @@ Electron persists refresh tokens via main-process `safeStorage` when available.
 
 The **web** client uses **memory-only** access + refresh tokens (no `localStorage` / `sessionStorage` refresh persistence). Closing the browser tab ends the session. A stronger browser session strategy (httpOnly cookies, BFF, etc.) is **PLANNED**, not implemented.
 
-Google OAuth on web is **IMPLEMENTED** (redirect + exchange). Residual Google email auto-link risk: **H1** in `docs/PHASE-9-AUDIT.md`.
+Google OAuth on web is **IMPLEMENTED** (redirect + exchange). **H1** email auto-link: fixed in code pending production verification — `docs/PHASE-9-AUDIT.md`.
 
 ## CORS
 

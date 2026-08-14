@@ -40,8 +40,11 @@ function friendly(error) {
     google_rejected: 'Google sign-in was rejected.',
     google_email_unverified: 'Your Google email must be verified to continue.',
     google_email_missing: 'Google did not provide an email address.',
+    account_conflict:
+      'An account already exists for this email. Sign in using your existing method.',
     google_email_conflict: 'This Google email conflicts with an existing account.',
-    google_account_mismatch: 'This email is linked to a different Google account.',
+    google_account_mismatch:
+      'An account already exists for this email. Sign in using your existing method.',
     google_account_conflict: 'Unable to create an account for this Google identity.',
     google_already_linked: 'This Google account is already linked.',
     invalid_oauth_state: 'Google sign-in expired. Please try again.',

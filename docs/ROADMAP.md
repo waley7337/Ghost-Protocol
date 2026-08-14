@@ -131,7 +131,7 @@ Do **not** treat `IMPLEMENTED` as production-verified. Do **not** invent histori
 |----|-------|--------|--------|
 | WP1 | Docs truth + residual-risk register | WAL-252 | **In Progress** |
 | WP1b | Accept residual-risk register | WAL-253 | Todo |
-| WP2 | Harden Google email auto-link (**H1**) | WAL-254 | Todo — do not start in WP1 |
+| WP2 | Harden Google email auto-link (**H1**) | WAL-254 | **In Progress** — code fix pending production verification |
 | WP3 | OAuth JWKS + exchange delivery | WAL-255 | Todo |
 | WP4 | Optimistic concurrency | WAL-251 | Todo (claims blocker) |
 | WP5 | Vercel CSP header + API polish | WAL-256 | Todo |
@@ -196,7 +196,7 @@ Do **not** treat `IMPLEMENTED` as production-verified. Do **not** invent histori
 
 | Risk / blocker | Severity | Notes |
 |----------------|----------|-------|
-| **H1 Google email auto-link pre-hijack** | **High** | Release blocker for broad Google acquisition — WAL-254 WP2 |
+| **H1 Google email auto-link pre-hijack** | **High** | Fixed in code (pending production verification) — WAL-254 WP2 |
 | **H2 Unsigned / not-notarized Electron** | **High** | **NO-GO** public Electron distribution |
 | **H3 Electron npm audit High CVEs** | **High** | **NO-GO** wide public desktop until WP6 triage |
 | **WAL-251 progress LWW concurrency** | Medium (claims: High) | **NO-GO** for conflict-safe concurrent sync *claims*; sequential OK; leave Todo |

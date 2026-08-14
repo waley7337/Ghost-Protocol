@@ -26,7 +26,7 @@ Phase 9 remains **In Progress**. Do **not** mark WAL-186 Done after WP1 alone. D
 
 | ID | Blocker | Blocks |
 |----|---------|--------|
-| **H1** | Google email auto-link pre-hijack | Broad Google-auth user acquisition without fix or explicit acceptance |
+| **H1** | Google email auto-link pre-hijack | Fixed in code — pending production verification (not Phase 9 Done) |
 | **H2** | Unsigned / not-notarized Electron | Public / Gatekeeper-safe macOS (and general public) desktop distribution |
 | **H3** | Electron / root `npm audit` High vulnerabilities | Wide public desktop distribution until triaged/upgraded |
 | **WAL-251** | Full-snapshot LWW progress sync | **Claims only** of conflict-safe concurrent multi-device sync (implementation deferred; leave Todo) |
@@ -80,9 +80,9 @@ Status values for WP1: `Open` · `Documented` · `Accepted residual` · `Claims-
 | Component | `backend/src/services/googleOAuth.js` (`findOrCreateGoogleUser` email-match path) |
 | Evidence | If an attacker registers `victim@gmail.com` first (`email_verified=FALSE`, password set), then the victim signs in with Google for the same verified email, the server links `google_sub` onto the attacker row and sets `email_verified=TRUE`. Attacker retains password access. |
 | Impact | Account pre-hijack for live Google OAuth |
-| Remediation | Refuse link when password account is unverified; require password reauth to link; or explicit conflict path — see [WAL-254](https://linear.app/waley-nagdi/issue/WAL-254/wp2-harden-google-email-auto-link-h1) |
-| Verification | Expanded `google.oauth.test.js`; disposable-account production retest |
-| Status | **Open** — release blocker; WP2 Todo (do not implement in WP1) |
+| Remediation | **Implemented (code):** refuse auto-link when Google identity is new and email already belongs to any account; return neutral `account_conflict`; no session/exchange. Explicit authenticated linking deferred (not in WP2). |
+| Verification | Expanded `google.oauth.test.js` (linked / new / password collision / case / race / no session). **Production disposable-account retest still pending.** |
+| Status | **Fixed in code — pending production verification** (not closed; Phase 9 / WP2 not Done) |
 
 #### H2 — Unsigned / not-notarized Electron
 
@@ -269,7 +269,7 @@ Status values for WP1: `Open` · `Documented` · `Accepted residual` · `Claims-
 |----|--------|-------|--------|
 | WP1 | [WAL-252](https://linear.app/waley-nagdi/issue/WAL-252/wp1-docs-truth-and-residual-risk-register) | Docs truth + this register | **In Progress** |
 | WP1b | [WAL-253](https://linear.app/waley-nagdi/issue/WAL-253/wp1b-accept-phase-9-residual-risk-register) | Operator acceptance of residuals | Todo |
-| WP2 | [WAL-254](https://linear.app/waley-nagdi/issue/WAL-254/wp2-harden-google-email-auto-link-h1) | H1 Google link hardening | Todo — **do not start** |
+| WP2 | [WAL-254](https://linear.app/waley-nagdi/issue/WAL-254/wp2-harden-google-email-auto-link-h1) | H1 Google link hardening | **In Progress** — code fix pending production verification |
 | WP3 | [WAL-255](https://linear.app/waley-nagdi/issue/WAL-255/wp3-oauth-jwks-verify-and-exchange-delivery-m4m5) | M4/M5 OAuth defense-in-depth | Todo |
 | WP4 | [WAL-251](https://linear.app/waley-nagdi/issue/WAL-251/add-optimistic-concurrency-protection-to-cross-device-progress) | Optimistic concurrency | Todo (claims blocker) |
 | WP5 | [WAL-256](https://linear.app/waley-nagdi/issue/WAL-256/wp5-vercel-csp-header-and-api-hardening-polish) | Web CSP header + API polish | Todo |
@@ -301,6 +301,6 @@ Residual risks (H1–H3, M1–M10, L1–L8) remain **honestly listed** — corre
 |------|-------|
 | Pre-implementation audit | Complete (read-only) |
 | WP1 documentation truth | In Progress (this commit when approved) |
-| WP2+ implementation | **Not started** |
+| WP2+ implementation | **WP2 In Progress** (H1 code fix; production verification pending); WP3+ not started |
 | Phase 9 / WAL-186 | **In Progress** — not Done |
 | WAL-251 | **Todo** — claims blocker only |
