@@ -493,8 +493,28 @@ function bootStep(){
   if(bootIdx>=bootMsgs.length){
     setTimeout(async()=>{
       window.ghostSplashComplete=true;
-      const authenticated=await window.ghostAuthReady;
-      window.finishGhostStartup(authenticated);
+      // WAL-255: auth-ready must always settle; fail-safe never invents a session.
+      let authenticated=false;
+      try{
+        if(typeof window.ghostResolveAuthForBoot==='function'){
+          authenticated=await window.ghostResolveAuthForBoot();
+        }else if(window.ghostAuthReady){
+          // Fallback if bundle helper missing: race with 12s (matches BOOT_AUTH_TIMEOUT_MS).
+          authenticated=await Promise.race([
+            Promise.resolve(window.ghostAuthReady).then(v=>Boolean(v)),
+            new Promise(r=>setTimeout(()=>{
+              r(typeof window.ghostAuthIsAuthenticated==='function'
+                ? window.ghostAuthIsAuthenticated()===true
+                : false);
+            },12000))
+          ]);
+        }
+      }catch(_){
+        authenticated=typeof window.ghostAuthIsAuthenticated==='function'
+          ? window.ghostAuthIsAuthenticated()===true
+          : false;
+      }
+      window.finishGhostStartup(authenticated===true);
     },1000);
     return;
   }

@@ -1,4 +1,11 @@
 import { api, ApiError } from './api.js';
+import {
+  AUTH_READY_TIMEOUT_MS,
+  BOOT_AUTH_TIMEOUT_MS,
+  UNLOCK_TIMEOUT_MS,
+  raceAuthReadyForBoot,
+  withTimeout
+} from './auth-readiness.js';
 
 const isElectron = Boolean(window.ghostDesktop);
 const REDIRECT_URL = isElectron
@@ -312,15 +319,22 @@ async function unlockAuthenticatedSession({ startApp = false } = {}) {
     return false;
   }
   try {
-    await ensureProfileForUser(user);
-    await loadProgressWithBarrier();
+    // Bound /me profile+progress so hung requests cannot block auth-ready forever (WAL-255).
+    await withTimeout(
+      (async () => {
+        await ensureProfileForUser(user);
+        await loadProgressWithBarrier();
+      })(),
+      UNLOCK_TIMEOUT_MS,
+      'profile/progress unlock'
+    );
     updateProfile();
     showGate(false);
     message();
     if (startApp && window.ghostSplashComplete) window.startGhostProtocol();
     return true;
   } catch (error) {
-    // Authenticated but sync failed — still unlock; local progress remains.
+    // Authenticated but sync failed/timed out — still unlock; local progress remains.
     enableSync();
     updateProfile();
     showGate(false);
@@ -549,23 +563,39 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+async function runInitializeAuthentication() {
+  disableSync();
+  const callback = readGoogleCallbackFromLocation();
+  if (callback.exchangeCode || callback.errorCode) {
+    await handleGoogleCallbackPayload({ ...callback, startApp: true });
+    return api.isAuthenticated();
+  }
+
+  const user = await api.restoreSession();
+  if (!user) {
+    showGate(true);
+    return false;
+  }
+  await unlockAuthenticatedSession({ startApp: false });
+  return api.isAuthenticated();
+}
+
+/**
+ * Always settles with a boolean. Session establishment (exchange/restore) is not blocked
+ * forever by hung unlock; overall init is also bounded (WAL-255).
+ */
 async function initializeAuthentication() {
   try {
-    disableSync();
-    const callback = readGoogleCallbackFromLocation();
-    if (callback.exchangeCode || callback.errorCode) {
-      await handleGoogleCallbackPayload({ ...callback, startApp: true });
+    return await withTimeout(
+      runInitializeAuthentication(),
+      AUTH_READY_TIMEOUT_MS,
+      'initializeAuthentication'
+    );
+  } catch (error) {
+    // Timeout: report real session only — never clear an established exchange/restore.
+    if (error?.name === 'TimeoutError') {
       return api.isAuthenticated();
     }
-
-    const user = await api.restoreSession();
-    if (!user) {
-      showGate(true);
-      return false;
-    }
-    await unlockAuthenticatedSession({ startApp: false });
-    return api.isAuthenticated();
-  } catch {
     disableSync();
     await api.clearSession();
     showGate(true);
@@ -574,4 +604,9 @@ async function initializeAuthentication() {
   }
 }
 
+/** Read-only session probe for boot fail-safe — does not invent tokens. */
+window.ghostAuthIsAuthenticated = () => api.isAuthenticated();
 window.ghostAuthReady = initializeAuthentication();
+/** Splash boot: race auth-ready with fail-safe; timeout uses real isAuthenticated(). */
+window.ghostResolveAuthForBoot = () =>
+  raceAuthReadyForBoot(window.ghostAuthReady, () => api.isAuthenticated(), BOOT_AUTH_TIMEOUT_MS);
