@@ -281,6 +281,14 @@ test('OAuth start URL allowlist is limited to API /auth/google', () => {
 test('malformed ghost-protocol callbacks are rejected', () => {
   assert.equal(security.parseAuthCallbackUrl('ghost-protocol://auth/callback').ok, true);
   assert.equal(security.parseAuthCallbackUrl('ghost-protocol://auth/callback?code=x').ok, true);
+  assert.equal(
+    security.parseAuthCallbackUrl('ghost-protocol://auth/callback#google_exchange=abc').ok,
+    true
+  );
+  assert.equal(
+    security.parseAuthCallbackUrl('ghost-protocol://auth/callback#google_exchange=abc').url,
+    'ghost-protocol://auth/callback#google_exchange=abc'
+  );
   assert.equal(security.parseAuthCallbackUrl('ghost-protocol://auth/other').ok, false);
   assert.equal(security.parseAuthCallbackUrl('https://auth/callback').ok, false);
   assert.equal(security.parseAuthCallbackUrl('ghost-protocol://evil/callback').ok, false);

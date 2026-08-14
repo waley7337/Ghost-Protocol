@@ -126,8 +126,8 @@ function isAllowedOAuthStartUrl(url, apiBaseUrl) {
 }
 
 /**
- * Strict validation for dormant OAuth deep links.
- * Accepts only ghost-protocol://auth/callback with optional query.
+ * Strict validation for OAuth deep links.
+ * Accepts only ghost-protocol://auth/callback with optional query and/or fragment.
  * Does NOT imply authentication success.
  */
 function parseAuthCallbackUrl(url) {
@@ -159,7 +159,9 @@ function parseAuthCallbackUrl(url) {
   if (parsed.port) {
     return { ok: false, reason: 'port' };
   }
-  return { ok: true, url: `${AUTH_SCHEME}://auth/callback${parsed.search || ''}` };
+  const search = parsed.search || '';
+  const hash = parsed.hash || '';
+  return { ok: true, url: `${AUTH_SCHEME}://auth/callback${search}${hash}` };
 }
 
 function isAuthCallback(url) {

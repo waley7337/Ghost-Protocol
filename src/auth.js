@@ -100,6 +100,10 @@ function clearGoogleQueryParams() {
         changed = true;
       }
     }
+    if (url.hash) {
+      url.hash = '';
+      changed = true;
+    }
     if (changed) {
       window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
     }
@@ -344,13 +348,40 @@ async function completeGoogleExchange(exchangeCode, { startApp = true } = {}) {
   }
 }
 
-function readGoogleCallbackFromLocation(search = window.location.search) {
-  const params = new URLSearchParams(search || '');
+/**
+ * Read Google callback params from fragment (preferred, M5) or query (legacy).
+ */
+function readGoogleCallbackParams(urlLike = window.location.href) {
+  let parsed;
+  try {
+    parsed = new URL(urlLike, window.location.origin);
+  } catch {
+    return { exchangeCode: null, errorCode: null, errorMessage: null };
+  }
+  const fromHash = new URLSearchParams(
+    parsed.hash.startsWith('#') ? parsed.hash.slice(1) : parsed.hash || ''
+  );
+  const fromQuery = parsed.searchParams;
   return {
-    exchangeCode: params.get('google_exchange'),
-    errorCode: params.get('google_error'),
-    errorMessage: params.get('google_error_message')
+    exchangeCode: fromHash.get('google_exchange') || fromQuery.get('google_exchange'),
+    errorCode: fromHash.get('google_error') || fromQuery.get('google_error'),
+    // Message is no longer placed in redirects; keep reading for backward compatibility.
+    errorMessage:
+      fromHash.get('google_error_message') || fromQuery.get('google_error_message') || null
   };
+}
+
+function readGoogleCallbackFromLocation(search = window.location.search) {
+  // Prefer full href so fragment delivery works; `search` arg kept for older call sites/tests.
+  if (search && search !== window.location.search) {
+    const fromQuery = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+    return {
+      exchangeCode: fromQuery.get('google_exchange'),
+      errorCode: fromQuery.get('google_error'),
+      errorMessage: fromQuery.get('google_error_message')
+    };
+  }
+  return readGoogleCallbackParams(window.location.href);
 }
 
 async function handleGoogleCallbackPayload({ exchangeCode, errorCode, errorMessage, startApp = true }) {
@@ -370,11 +401,9 @@ async function handleGoogleCallbackPayload({ exchangeCode, errorCode, errorMessa
 if (isElectron && window.ghostDesktop?.onAuthCallback) {
   window.ghostDesktop.onAuthCallback(async (callbackUrl) => {
     try {
-      const parsed = new URL(callbackUrl);
+      const payload = readGoogleCallbackParams(callbackUrl);
       await handleGoogleCallbackPayload({
-        exchangeCode: parsed.searchParams.get('google_exchange'),
-        errorCode: parsed.searchParams.get('google_error'),
-        errorMessage: parsed.searchParams.get('google_error_message'),
+        ...payload,
         startApp: true
       });
     } catch {

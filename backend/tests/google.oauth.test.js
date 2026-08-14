@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const crypto = require('node:crypto');
+const { generateKeyPair, exportJWK, SignJWT, createLocalJWKSet } = require('jose');
 const { loadConfig } = require('../src/config');
 const { createRequestListener } = require('../src/routes');
 const {
@@ -12,8 +13,25 @@ const {
   signOAuthState,
   completeGoogleOAuth,
   consumeExchangeCode,
-  hashExchangeCode
+  hashExchangeCode,
+  verifyGoogleIdToken,
+  buildGoogleAuthorizeUrl,
+  startGoogleOAuth
 } = require('../src/services/googleOAuth');
+
+let testJwks;
+let testPrivateKey;
+let testKid = 'ghost-test-google-key';
+
+test.before(async () => {
+  const { publicKey, privateKey } = await generateKeyPair('RS256');
+  testPrivateKey = privateKey;
+  const jwk = await exportJWK(publicKey);
+  jwk.alg = 'RS256';
+  jwk.kid = testKid;
+  jwk.use = 'sig';
+  testJwks = createLocalJWKSet({ keys: [jwk] });
+});
 
 function googleConfig(overrides = {}) {
   return loadConfig({
@@ -204,10 +222,232 @@ function createMemoryPool() {
 }
 
 function fakeIdToken(claims) {
+  // Legacy unsigned placeholder — must be rejected by JWKS verification.
   const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
   const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
   return `${header}.${payload}.sig`;
 }
+
+async function signedGoogleIdToken(config, claims) {
+  return new SignJWT({
+    email_verified: true,
+    ...claims
+  })
+    .setProtectedHeader({ alg: 'RS256', kid: testKid, typ: 'JWT' })
+    .setIssuer('https://accounts.google.com')
+    .setAudience(config.googleClientId)
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .setSubject(claims.sub)
+    .sign(testPrivateKey);
+}
+
+function parseFragmentParams(redirectTo) {
+  const url = new URL(redirectTo);
+  return new URLSearchParams(url.hash.startsWith('#') ? url.hash.slice(1) : url.hash || '');
+}
+
+test('verifyGoogleIdToken: correct nonce accepted', async () => {
+  const config = googleConfig();
+  const token = await signedGoogleIdToken(config, {
+    sub: 'sub-ok',
+    email: 'ok@example.com',
+    nonce: 'nonce-ok'
+  });
+  const identity = await verifyGoogleIdToken(config, token, {
+    expectedNonce: 'nonce-ok',
+    jwks: testJwks
+  });
+  assert.equal(identity.googleSub, 'sub-ok');
+  assert.equal(identity.email, 'ok@example.com');
+});
+
+test('verifyGoogleIdToken: bad signature rejected', async () => {
+  const config = googleConfig();
+  const { privateKey: otherKey } = await generateKeyPair('RS256');
+  const tampered = await new SignJWT({
+    email: 'bad-sig@example.com',
+    email_verified: true,
+    nonce: 'n'
+  })
+    .setProtectedHeader({ alg: 'RS256', kid: testKid, typ: 'JWT' })
+    .setIssuer('https://accounts.google.com')
+    .setAudience(config.googleClientId)
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .setSubject('sub-bad-sig')
+    .sign(otherKey);
+
+  await assert.rejects(
+    () => verifyGoogleIdToken(config, tampered, { expectedNonce: 'n', jwks: testJwks }),
+    (error) => error.code === 'google_identity_invalid'
+  );
+});
+
+test('verifyGoogleIdToken: unsigned alg:none rejected', async () => {
+  const config = googleConfig();
+  await assert.rejects(
+    () =>
+      verifyGoogleIdToken(
+        config,
+        fakeIdToken({
+          iss: 'https://accounts.google.com',
+          aud: config.googleClientId,
+          sub: 'x',
+          email: 'a@b.com',
+          email_verified: true,
+          nonce: 'n',
+          exp: Math.floor(Date.now() / 1000) + 3600
+        }),
+        { expectedNonce: 'n', jwks: testJwks }
+      ),
+    (error) => error.code === 'google_identity_invalid'
+  );
+});
+
+test('verifyGoogleIdToken: wrong audience rejected', async () => {
+  const config = googleConfig();
+  const token = await new SignJWT({
+    email: 'aud@example.com',
+    email_verified: true,
+    nonce: 'n-aud'
+  })
+    .setProtectedHeader({ alg: 'RS256', kid: testKid, typ: 'JWT' })
+    .setIssuer('https://accounts.google.com')
+    .setAudience('wrong-audience.apps.googleusercontent.com')
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .setSubject('sub-aud')
+    .sign(testPrivateKey);
+
+  await assert.rejects(
+    () => verifyGoogleIdToken(config, token, { expectedNonce: 'n-aud', jwks: testJwks }),
+    (error) => error.code === 'google_identity_invalid'
+  );
+});
+
+test('verifyGoogleIdToken: wrong issuer rejected', async () => {
+  const config = googleConfig();
+  const token = await new SignJWT({
+    email: 'iss@example.com',
+    email_verified: true,
+    nonce: 'n-iss'
+  })
+    .setProtectedHeader({ alg: 'RS256', kid: testKid, typ: 'JWT' })
+    .setIssuer('https://evil.example')
+    .setAudience(config.googleClientId)
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .setSubject('sub-iss')
+    .sign(testPrivateKey);
+
+  await assert.rejects(
+    () => verifyGoogleIdToken(config, token, { expectedNonce: 'n-iss', jwks: testJwks }),
+    (error) => error.code === 'google_identity_invalid'
+  );
+});
+
+test('verifyGoogleIdToken: expired token rejected', async () => {
+  const config = googleConfig();
+  const token = await new SignJWT({
+    email: 'exp@example.com',
+    email_verified: true,
+    nonce: 'n-exp'
+  })
+    .setProtectedHeader({ alg: 'RS256', kid: testKid, typ: 'JWT' })
+    .setIssuer('https://accounts.google.com')
+    .setAudience(config.googleClientId)
+    .setIssuedAt(Math.floor(Date.now() / 1000) - 7200)
+    .setExpirationTime(Math.floor(Date.now() / 1000) - 3600)
+    .setSubject('sub-exp')
+    .sign(testPrivateKey);
+
+  await assert.rejects(
+    () => verifyGoogleIdToken(config, token, { expectedNonce: 'n-exp', jwks: testJwks }),
+    (error) => error.code === 'google_identity_invalid'
+  );
+});
+
+test('verifyGoogleIdToken: missing nonce rejected when expected', async () => {
+  const config = googleConfig();
+  const token = await signedGoogleIdToken(config, {
+    sub: 'sub-missing-nonce',
+    email: 'missing-nonce@example.com'
+    // no nonce claim
+  });
+  await assert.rejects(
+    () =>
+      verifyGoogleIdToken(config, token, {
+        expectedNonce: 'nonce-required',
+        jwks: testJwks
+      }),
+    (error) => error.code === 'google_identity_invalid'
+  );
+});
+
+test('verifyGoogleIdToken: wrong nonce rejected', async () => {
+  const config = googleConfig();
+  const token = await signedGoogleIdToken(config, {
+    sub: 'sub-wrong-nonce',
+    email: 'wrong-nonce@example.com',
+    nonce: 'nonce-a'
+  });
+  await assert.rejects(
+    () =>
+      verifyGoogleIdToken(config, token, {
+        expectedNonce: 'nonce-b',
+        jwks: testJwks
+      }),
+    (error) => error.code === 'google_identity_invalid'
+  );
+});
+
+test('exchange code replay is rejected after first consume', async () => {
+  const config = googleConfig();
+  const pool = createMemoryPool();
+  const state = await signOAuthState(config, {
+    typ: 'google_oauth_state',
+    nonce: 'n-replay',
+    returnTo: 'https://ghost-protocol-pi.vercel.app/',
+    platform: 'web'
+  });
+  const idToken = await signedGoogleIdToken(config, {
+    sub: 'sub-replay',
+    email: 'replay@example.com',
+    nonce: 'n-replay'
+  });
+  const completed = await completeGoogleOAuth(pool, config, {
+    code: 'auth-code-replay',
+    state,
+    fetchImpl: async () => ({
+      ok: true,
+      async json() {
+        return { id_token: idToken };
+      }
+    }),
+    jwks: testJwks
+  });
+  const exchange = parseFragmentParams(completed.redirectTo).get('google_exchange');
+  assert.ok(exchange);
+  const first = await consumeExchangeCode(pool, exchange);
+  assert.ok(first.accessToken);
+  await assert.rejects(
+    () => consumeExchangeCode(pool, exchange),
+    (error) => error.code === 'invalid_exchange_code'
+  );
+});
+
+test('startGoogleOAuth includes OpenID nonce in authorize URL', async () => {
+  const config = googleConfig();
+  const started = await startGoogleOAuth(config, {
+    returnTo: 'https://ghost-protocol-pi.vercel.app/'
+  });
+  const url = new URL(started.url);
+  assert.ok(url.searchParams.get('nonce'));
+  assert.ok(url.searchParams.get('state'));
+  const built = buildGoogleAuthorizeUrl(config, 'state-value', { nonce: 'n-explicit' });
+  assert.equal(new URL(built).searchParams.get('nonce'), 'n-explicit');
+});
 
 test('assertGoogleIdentity requires verified email, iss, aud, sub', () => {
   const config = googleConfig();
@@ -444,35 +684,32 @@ test('complete Google OAuth issues no session on account conflict', async () => 
     platform: 'web'
   });
 
+  const idToken = await signedGoogleIdToken(config, {
+    sub: 'sub-conflict',
+    email: 'conflict@example.com',
+    nonce: 'n-conflict'
+  });
+
   const fetchImpl = async () => ({
     ok: true,
     async json() {
-      return {
-        id_token: fakeIdToken({
-          iss: 'https://accounts.google.com',
-          aud: config.googleClientId,
-          sub: 'sub-conflict',
-          email: 'conflict@example.com',
-          email_verified: true,
-          exp: Math.floor(Date.now() / 1000) + 3600
-        })
-      };
+      return { id_token: idToken };
     }
   });
 
   const completed = await completeGoogleOAuth(pool, config, {
     code: 'auth-code',
     state,
-    fetchImpl
+    fetchImpl,
+    jwks: testJwks
   });
 
   const redirect = new URL(completed.redirectTo);
-  assert.equal(redirect.searchParams.get('google_error'), 'account_conflict');
-  assert.match(
-    redirect.searchParams.get('google_error_message') || '',
-    /existing method/i
-  );
-  assert.equal(redirect.searchParams.get('google_exchange'), null);
+  assert.equal(redirect.search, '');
+  const fragment = parseFragmentParams(completed.redirectTo);
+  assert.equal(fragment.get('google_error'), 'account_conflict');
+  assert.equal(fragment.get('google_error_message'), null);
+  assert.equal(fragment.get('google_exchange'), null);
   assert.equal(pool._sessions.size, 0);
   assert.equal(pool._exchanges.size, 0);
   assert.equal([...pool._users.values()][0].google_sub, null);
@@ -488,31 +725,32 @@ test('complete Google OAuth issues exchange code and session tokens', async () =
     platform: 'web'
   });
 
+  const idToken = await signedGoogleIdToken(config, {
+    sub: 'sub-flow',
+    email: 'flow@example.com',
+    nonce: 'n1'
+  });
+
   const fetchImpl = async () => ({
     ok: true,
     async json() {
-      return {
-        id_token: fakeIdToken({
-          iss: 'https://accounts.google.com',
-          aud: config.googleClientId,
-          sub: 'sub-flow',
-          email: 'flow@example.com',
-          email_verified: true,
-          exp: Math.floor(Date.now() / 1000) + 3600
-        })
-      };
+      return { id_token: idToken };
     }
   });
 
   const completed = await completeGoogleOAuth(pool, config, {
     code: 'auth-code',
     state,
-    fetchImpl
+    fetchImpl,
+    jwks: testJwks
   });
-  assert.match(completed.redirectTo, /^https:\/\/ghost-protocol-pi\.vercel\.app\/\?/);
+  assert.match(completed.redirectTo, /^https:\/\/ghost-protocol-pi\.vercel\.app\/#/);
   const redirect = new URL(completed.redirectTo);
-  const exchange = redirect.searchParams.get('google_exchange');
+  assert.equal(redirect.search, '');
+  const fragment = parseFragmentParams(completed.redirectTo);
+  const exchange = fragment.get('google_exchange');
   assert.ok(exchange);
+  assert.equal(fragment.get('google_error'), null);
 
   const bundle = await consumeExchangeCode(pool, exchange);
   assert.ok(bundle.accessToken);
@@ -537,7 +775,8 @@ test('invalid OAuth state and Google cancel redirect cleanly to frontend', async
     state,
     error: 'access_denied'
   });
-  assert.match(cancelled.redirectTo, /google_error=google_cancelled/);
+  assert.match(cancelled.redirectTo, /#.*google_error=google_cancelled/);
+  assert.doesNotMatch(cancelled.redirectTo, /google_error_message=/);
 
   await assert.rejects(
     () =>
@@ -577,6 +816,7 @@ test('GET /auth/google redirects to Google; exchange endpoint returns tokens', a
       'https://ghost-protocol-production-f7ef.up.railway.app/auth/google/callback'
     );
     assert.ok(googleUrl.searchParams.get('state'));
+    assert.ok(googleUrl.searchParams.get('nonce'));
 
     // Seed an exchange row directly
     const code = crypto.randomBytes(16).toString('base64url');

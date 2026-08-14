@@ -6,7 +6,7 @@
  */
 
 const crypto = require('node:crypto');
-const { SignJWT, jwtVerify } = require('jose');
+const { SignJWT, jwtVerify, createRemoteJWKSet } = require('jose');
 const { query, DatabaseError, withTransaction } = require('../db');
 const { AppError } = require('../errors');
 const { isGoogleOAuthConfigured } = require('../config');
@@ -34,10 +34,25 @@ function isUniqueViolation(error) {
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const GOOGLE_JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
 const GOOGLE_ISSUERS = new Set(['https://accounts.google.com', 'accounts.google.com']);
 const STATE_TTL_SECONDS = 600;
 const EXCHANGE_TTL_SECONDS = 120;
 const ELECTRON_RETURN = 'ghost-protocol://auth/callback';
+
+/**
+ * Cached remote JWKS for Google ID token signature verification (M4).
+ * jose `createRemoteJWKSet` does NOT fetch on every verify:
+ * - `cacheMaxAge` (default 600_000 ms / 10 min): keys are reused while fresh
+ * - `cooldownDuration` (default 30_000 ms): after a fetch, rate-limits reload storms
+ * - On `JWKSNoMatchingKey` (rotated kid), reloads once if not cooling down
+ * See jose RemoteJWKSetImpl.getKey / reload.
+ */
+const defaultGoogleJwks = createRemoteJWKSet(new URL(GOOGLE_JWKS_URL), {
+  cacheMaxAge: 600_000,
+  cooldownDuration: 30_000,
+  timeoutDuration: 5_000
+});
 
 function requireGoogleConfig(config) {
   if (!isGoogleOAuthConfigured(config)) {
@@ -126,7 +141,7 @@ function resolveReturnTo(config, { returnTo, platform } = {}) {
   });
 }
 
-function buildGoogleAuthorizeUrl(config, state) {
+function buildGoogleAuthorizeUrl(config, state, { nonce } = {}) {
   const params = new URLSearchParams({
     client_id: config.googleClientId,
     redirect_uri: config.googleRedirectUri,
@@ -137,6 +152,9 @@ function buildGoogleAuthorizeUrl(config, state) {
     include_granted_scopes: 'true',
     prompt: 'select_account'
   });
+  if (typeof nonce === 'string' && nonce) {
+    params.set('nonce', nonce);
+  }
   return `${GOOGLE_AUTH_URL}?${params.toString()}`;
 }
 
@@ -151,34 +169,52 @@ async function startGoogleOAuth(config, { returnTo, platform } = {}) {
     platform: platform === 'electron' ? 'electron' : 'web'
   });
   return {
-    url: buildGoogleAuthorizeUrl(config, state),
+    url: buildGoogleAuthorizeUrl(config, state, { nonce }),
     returnTo: resolvedReturnTo
   };
 }
 
-function decodeIdTokenPayload(idToken) {
+/**
+ * Verify Google ID token signature via JWKS, then assert iss/aud/exp/sub/email claims.
+ * Optional expectedNonce must match the OpenID nonce claim (bound to signed OAuth state).
+ */
+async function verifyGoogleIdToken(
+  config,
+  idToken,
+  { expectedNonce, jwks = defaultGoogleJwks } = {}
+) {
   if (typeof idToken !== 'string' || !idToken) {
     throw new AppError('Google identity token missing', {
       status: 400,
       code: 'google_identity_invalid'
     });
   }
-  const parts = idToken.split('.');
-  if (parts.length !== 3) {
-    throw new AppError('Google identity token invalid', {
-      status: 400,
-      code: 'google_identity_invalid'
-    });
-  }
+
+  let payload;
   try {
-    const json = Buffer.from(parts[1], 'base64url').toString('utf8');
-    return JSON.parse(json);
-  } catch {
+    ({ payload } = await jwtVerify(idToken, jwks, {
+      issuer: ['https://accounts.google.com', 'accounts.google.com'],
+      audience: config.googleClientId,
+      algorithms: ['RS256']
+    }));
+  } catch (error) {
+    if (error instanceof AppError) throw error;
     throw new AppError('Google identity token invalid', {
       status: 400,
       code: 'google_identity_invalid'
     });
   }
+
+  if (typeof expectedNonce === 'string' && expectedNonce) {
+    if (typeof payload.nonce !== 'string' || payload.nonce !== expectedNonce) {
+      throw new AppError('Google identity nonce mismatch', {
+        status: 400,
+        code: 'google_identity_invalid'
+      });
+    }
+  }
+
+  return assertGoogleIdentity(config, payload);
 }
 
 function assertGoogleIdentity(config, claims) {
@@ -236,7 +272,11 @@ function assertGoogleIdentity(config, claims) {
   };
 }
 
-async function exchangeCodeWithGoogle(config, code, { fetchImpl = fetch } = {}) {
+async function exchangeCodeWithGoogle(
+  config,
+  code,
+  { fetchImpl = fetch, expectedNonce, jwks } = {}
+) {
   if (typeof code !== 'string' || !code) {
     throw new AppError('Missing Google authorization code', {
       status: 400,
@@ -283,8 +323,7 @@ async function exchangeCodeWithGoogle(config, code, { fetchImpl = fetch } = {}) 
     });
   }
 
-  const claims = decodeIdTokenPayload(json.id_token);
-  return assertGoogleIdentity(config, claims);
+  return verifyGoogleIdToken(config, json.id_token, { expectedNonce, jwks });
 }
 
 /**
@@ -486,18 +525,28 @@ async function consumeExchangeCode(pool, code) {
   }
 }
 
-function appendQuery(returnTo, params) {
+/**
+ * M5: deliver OAuth callback params in the URL fragment (not query) so exchange
+ * codes and error codes are less exposed via Referer / server access logs.
+ * Do not put human-readable error messages in the redirect URL.
+ */
+function appendFragmentParams(returnTo, params) {
   const url = new URL(returnTo);
+  url.search = '';
+  const fragment = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+    if (value !== undefined && value !== null && value !== '') {
+      fragment.set(key, String(value));
+    }
   }
+  url.hash = fragment.toString();
   return url.toString();
 }
 
 async function completeGoogleOAuth(
   pool,
   config,
-  { code, state, error, errorDescription, fetchImpl = fetch, userAgent, ipAddress } = {}
+  { code, state, error, errorDescription, fetchImpl = fetch, jwks, userAgent, ipAddress } = {}
 ) {
   requireGoogleConfig(config);
 
@@ -511,14 +560,16 @@ async function completeGoogleOAuth(
     returnTo = null;
   }
 
+  // errorDescription is intentionally unused in redirects (reduce URL leakage).
+  void errorDescription;
+
   const fail = (errCode, message) => {
     if (!returnTo) {
       throw new AppError(message, { status: 400, code: errCode });
     }
     return {
-      redirectTo: appendQuery(returnTo, {
-        google_error: errCode,
-        google_error_message: message
+      redirectTo: appendFragmentParams(returnTo, {
+        google_error: errCode
       })
     };
   };
@@ -528,7 +579,10 @@ async function completeGoogleOAuth(
       access_denied: 'google_cancelled',
       immediately_unavailable: 'google_unavailable'
     };
-    return fail(codeMap[error] || 'google_rejected', errorDescription || 'Google sign-in was cancelled or rejected');
+    return fail(
+      codeMap[error] || 'google_rejected',
+      'Google sign-in was cancelled or rejected'
+    );
   }
 
   if (!state) {
@@ -543,9 +597,16 @@ async function completeGoogleOAuth(
     return fail('invalid_oauth_state', 'Invalid or expired OAuth state');
   }
 
+  const expectedNonce =
+    typeof statePayload.nonce === 'string' && statePayload.nonce ? statePayload.nonce : null;
+
   let identity;
   try {
-    identity = await exchangeCodeWithGoogle(config, code, { fetchImpl });
+    identity = await exchangeCodeWithGoogle(config, code, {
+      fetchImpl,
+      expectedNonce,
+      jwks
+    });
   } catch (err) {
     const codeName = err instanceof AppError ? err.code : 'google_token_exchange_failed';
     const message = err instanceof AppError ? err.message : 'Google authorization failed';
@@ -562,7 +623,7 @@ async function completeGoogleOAuth(
     });
     const exchangeCode = await storeExchangeBundle(pool, { ...sessionBundle, user });
     return {
-      redirectTo: appendQuery(returnTo, { google_exchange: exchangeCode })
+      redirectTo: appendFragmentParams(returnTo, { google_exchange: exchangeCode })
     };
   } catch (err) {
     const codeName = err instanceof AppError ? err.code : 'google_signin_failed';
@@ -575,16 +636,19 @@ module.exports = {
   ELECTRON_RETURN,
   GOOGLE_AUTH_URL,
   GOOGLE_TOKEN_URL,
+  GOOGLE_JWKS_URL,
   startGoogleOAuth,
   completeGoogleOAuth,
   consumeExchangeCode,
   findOrCreateGoogleUser,
   exchangeCodeWithGoogle,
+  verifyGoogleIdToken,
   assertGoogleIdentity,
   resolveReturnTo,
   verifyOAuthState,
   signOAuthState,
   buildGoogleAuthorizeUrl,
+  appendFragmentParams,
   requireGoogleConfig,
   hashExchangeCode
 };

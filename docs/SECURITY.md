@@ -143,7 +143,7 @@ The retained SQL under `supabase/` is **LEGACY/HISTORICAL**. It is not used by t
 - Password reset with safe, time-limited tokens
 - Email verification workflow (register still creates unverified password users)
 - Explicit authenticated Google account linking UI (after H1 conflict path; not auto-link)
-- Google ID token JWKS verification + safer exchange delivery (Phase 9 WP3)
+- Google ID token JWKS verification + fragment exchange delivery (Phase 9 WP3 / WAL-255 — code pending production verification)
 - Optimistic concurrency for progress sync (**WAL-251** — required before concurrent multi-device sync *claims*)
 - Distributed / Cloudflare edge rate limiting and bot protections
 - Broader API surfaces beyond `/me/*` as features grow
@@ -166,7 +166,8 @@ Full register: `docs/PHASE-9-AUDIT.md`. Approved position: **Conditional GO** fo
 | H3 | Electron / root npm audit High CVEs | Open — blocks wide public desktop |
 | M1 / WAL-251 | Full-snapshot LWW progress | Claims blocker; sequential use accepted |
 | M3 | In-process rate limits | Accepted residual at current scale |
-| M4–M6 | OAuth JWKS / query exchange / web CSP header | Deferred WP3/WP5 |
+| M4–M5 | OAuth JWKS + fragment exchange delivery | Fixed in code — pending production verification (WAL-255) |
+| M6 | web CSP header | Deferred WP5 |
 | M7–M9 | Client XP trust / soft unlock / password-reset stub | Accepted residuals (honesty) |
 
 ---

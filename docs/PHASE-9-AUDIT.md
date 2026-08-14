@@ -153,12 +153,12 @@ Status values for WP1: `Open` · `Documented` · `Accepted residual` · `Claims-
 | Field | Detail |
 |-------|--------|
 | Severity | **Medium** |
-| Component | `googleOAuth.js` `decodeIdTokenPayload` / `assertGoogleIdentity` |
-| Evidence | Payload decoded after token endpoint exchange with `client_secret`; no JWKS signature check |
+| Component | `googleOAuth.js` `verifyGoogleIdToken` (was decode-only) |
+| Evidence | Pre-fix: payload decoded after token endpoint exchange with `client_secret`; no JWKS signature check |
 | Impact | Weaker defense-in-depth if token endpoint trust assumptions change |
-| Remediation | JWKS verify — [WAL-255](https://linear.app/waley-nagdi/issue/WAL-255/wp3-oauth-jwks-verify-and-exchange-delivery-m4m5) |
-| Verification | Unit tests with signed/invalid tokens |
-| Status | **Deferred (WP3)** |
+| Remediation | **Implemented (code):** RS256 JWKS verify via Google certs + OpenID `nonce` bound to signed OAuth state — [WAL-255](https://linear.app/waley-nagdi/issue/WAL-255/wp3-oauth-jwks-verify-and-exchange-delivery-m4m5) |
+| Verification | Unit tests with signed/invalid/wrong-nonce tokens. **Production Google login smoke pending.** |
+| Status | **Fixed in code — pending production verification** (WP3 / WAL-255 In Progress) |
 
 #### M5 — OAuth exchange code in redirect query string
 
@@ -166,11 +166,11 @@ Status values for WP1: `Open` · `Documented` · `Accepted residual` · `Claims-
 |-------|--------|
 | Severity | **Medium** |
 | Component | Google OAuth complete redirect (`google_exchange`); hashed store, ~120s TTL, one-time |
-| Evidence | Query parameter visible in history/referrer/logs |
+| Evidence | Pre-fix: query parameter visible in history/referrer/logs; human-readable `google_error_message` in query |
 | Impact | Short-lived code leakage risk |
-| Remediation | Fragment/POST delivery where feasible — WAL-255 |
-| Verification | Client callback tests; no long-lived codes |
-| Status | **Deferred (WP3)** |
+| Remediation | **Implemented (code):** fragment delivery for success/error codes; error **message** omitted from URL; client reads fragment (legacy query still accepted); Electron deep-link preserves hash |
+| Verification | OAuth suite asserts `#google_exchange` / `#google_error` with empty search. **Production smoke pending.** |
+| Status | **Fixed in code — pending production verification** (WP3 / WAL-255 In Progress) |
 
 #### M6 — Web CSP meta-only (no Vercel CSP header)
 
@@ -270,7 +270,7 @@ Status values for WP1: `Open` · `Documented` · `Accepted residual` · `Claims-
 | WP1 | [WAL-252](https://linear.app/waley-nagdi/issue/WAL-252/wp1-docs-truth-and-residual-risk-register) | Docs truth + this register | **In Progress** |
 | WP1b | [WAL-253](https://linear.app/waley-nagdi/issue/WAL-253/wp1b-accept-phase-9-residual-risk-register) | Operator acceptance of residuals | Todo |
 | WP2 | [WAL-254](https://linear.app/waley-nagdi/issue/WAL-254/wp2-harden-google-email-auto-link-h1) | H1 Google link hardening | **In Progress** — code fix pending production verification |
-| WP3 | [WAL-255](https://linear.app/waley-nagdi/issue/WAL-255/wp3-oauth-jwks-verify-and-exchange-delivery-m4m5) | M4/M5 OAuth defense-in-depth | Todo |
+| WP3 | [WAL-255](https://linear.app/waley-nagdi/issue/WAL-255/wp3-oauth-jwks-verify-and-exchange-delivery-m4m5) | M4/M5 OAuth defense-in-depth | **In Progress** — code pending production verification |
 | WP4 | [WAL-251](https://linear.app/waley-nagdi/issue/WAL-251/add-optimistic-concurrency-protection-to-cross-device-progress) | Optimistic concurrency | Todo (claims blocker) |
 | WP5 | [WAL-256](https://linear.app/waley-nagdi/issue/WAL-256/wp5-vercel-csp-header-and-api-hardening-polish) | Web CSP header + API polish | Todo |
 | WP6 | [WAL-257](https://linear.app/waley-nagdi/issue/WAL-257/wp6-electron-dependency-cve-triage-h3) | Electron CVE triage | Todo |
