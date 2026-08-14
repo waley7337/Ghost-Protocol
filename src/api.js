@@ -157,7 +157,10 @@ export function createApiClient(options = {}) {
     throw errorFromResponse(response.status, json, `Request failed (${response.status})`);
   }
 
-  async function rawRequest(path, { method = 'GET', body, headers = {}, auth = false } = {}) {
+  async function rawRequest(
+    path,
+    { method = 'GET', body, headers = {}, auth = false, keepalive = false } = {}
+  ) {
     const url = `${getBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`;
     const nextHeaders = { Accept: 'application/json', ...headers };
     if (body !== undefined) {
@@ -173,7 +176,8 @@ export function createApiClient(options = {}) {
     const response = await fetchImpl(url, {
       method,
       headers: nextHeaders,
-      body: body === undefined ? undefined : JSON.stringify(body)
+      body: body === undefined ? undefined : JSON.stringify(body),
+      ...(keepalive ? { keepalive: true } : {})
     });
 
     return response;
@@ -345,12 +349,20 @@ export function createApiClient(options = {}) {
     return request('/me/progress', { method: 'GET', auth: true });
   }
 
-  async function putProgress(progress) {
+  async function putProgress(progress, { keepalive = false } = {}) {
     const body = { ...progress };
     delete body.user_id;
     delete body.userId;
     delete body.id;
-    return request('/me/progress', { method: 'PUT', body, auth: true });
+    return request('/me/progress', {
+      method: 'PUT',
+      body,
+      auth: true,
+      // pagehide/unload flush: allow the browser to complete the request briefly
+      keepalive: Boolean(keepalive),
+      // Do not start a refresh dance during unload; fail closed if the access token is stale.
+      retryOnUnauthorized: keepalive ? false : true
+    });
   }
 
   /**

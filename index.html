@@ -1268,7 +1268,7 @@ function renderLab(lab){
 
   <div style="margin-top:16px;">
     <div style="font-size:9px;color:rgba(0,255,65,.3);letter-spacing:2px;margin-bottom:6px;">📝 MISSION NOTES (auto-saved)</div>
-    <textarea class="notes-ta" id="notes-ta" placeholder="// Write your notes here..." onchange="saveNote()">${esc(notes)}</textarea>
+    <textarea class="notes-ta" id="notes-ta" placeholder="// Write your notes here..." oninput="saveNote()" onchange="saveNote()">${esc(notes)}</textarea>
   </div>
 
   ${solved?`<div class="solved-banner">✅ MISSION ACCOMPLISHED — +${lab.xp} XP EARNED // BEST TIME: ${best?fmtTime(best):'--:--'}</div>`:''}
@@ -1287,7 +1287,19 @@ function toggleSteps(el){
 function toggleHint(){document.getElementById('hint-box').classList.toggle('show');}
 function toggleSol(){document.getElementById('sol-box').classList.toggle('show');}
 function resetTpl(){if(CUR){document.getElementById('req-ta').value=CUR.template;toast('Template restored','inf',2000);}}
-function saveNote(){if(CUR){ST.notes[CUR.id]=document.getElementById('notes-ta').value;saveState();}}
+/** Pull open-mission notes into ST without dispatching (used by auth logout/pagehide flush).
+ * No-op when the textarea matches ST — hydrated render must not look like an edit. */
+function captureNoteFromDom(){
+  if(!CUR)return;
+  const ta=document.getElementById('notes-ta');
+  if(!ta)return;
+  if(!ST.notes||typeof ST.notes!=='object')ST.notes={};
+  const next=ta.value;
+  if(ST.notes[CUR.id]===next)return;
+  ST.notes[CUR.id]=next;
+}
+window.captureNoteFromDom=captureNoteFromDom;
+function saveNote(){captureNoteFromDom();saveState();}
 
 // ═══════════════════════════════════════════
 // SEND SIMULATION

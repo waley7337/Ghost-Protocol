@@ -8,6 +8,12 @@ const REDIRECT_URL = isElectron
 let profile = null;
 let syncTimer;
 let syncEnabled = false;
+/** True after successful server hydrate or first-time progress bootstrap PUT. */
+let progressReady = false;
+/** Local progress diverged from last successful server save (or pending debounce). */
+let progressDirty = false;
+/** Prevents visibilitychange + pagehide from starting two unload PUTs for the same hide. */
+let unloadFlushStarted = false;
 
 const authMarkup = `<div id="auth-gate"><div class="auth-card"><div class="auth-brand">👻 GHOST PROTOCOL</div><div class="auth-sub">// OPERATIVE AUTHENTICATION //</div><div id="auth-login"><button class="auth-btn auth-btn-google" id="auth-google">CONTINUE WITH GOOGLE</button><div class="auth-divider">OR</div><input class="auth-input" id="auth-email" type="email" autocomplete="email" placeholder="OPERATIVE EMAIL"><input class="auth-input" id="auth-password" type="password" autocomplete="current-password" placeholder="PASSWORD"><button class="auth-btn" id="auth-submit">SIGN IN</button><div class="auth-links"><button class="auth-link" id="auth-forgot">Forgot password?</button><button class="auth-link" id="auth-mode">Create account</button></div></div><div id="auth-reset" class="auth-hidden"><input class="auth-input" id="auth-new-password" type="password" autocomplete="new-password" placeholder="NEW PASSWORD"><button class="auth-btn" id="auth-reset-submit">UPDATE PASSWORD</button></div><div class="auth-message" id="auth-message"></div></div></div><div id="auth-profile"><button class="profile-trigger" id="profile-trigger">● OPERATIVE</button><div class="profile-panel auth-hidden" id="profile-panel"><div class="profile-head"><img class="profile-avatar" id="profile-avatar" alt=""><div><div class="profile-name" id="profile-name"></div><div class="profile-email" id="profile-email"></div></div></div><div class="profile-stats" id="profile-stats"></div><button class="auth-btn" id="auth-logout">LOGOUT</button></div></div>`;
 document.body.insertAdjacentHTML('beforeend', authMarkup);
@@ -113,22 +119,74 @@ async function ensureProfileForUser(user) {
   return profile;
 }
 
+function isPlainProgressObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Client-side progress schema gate before any PUT.
+ * Rejects null/undefined/arrays/{}/malformed shells — not a weak JSON.stringify !== '{}' check.
+ * Full GhostProgress field set is required so uninitialized snapshots cannot upload.
+ */
+function isValidProgressSnapshot(progress) {
+  if (!isPlainProgressObject(progress)) return false;
+  if (Object.keys(progress).length === 0) return false;
+  if (typeof progress.xp !== 'number' || !Number.isFinite(progress.xp)) return false;
+  if (!Array.isArray(progress.solved)) return false;
+  if (typeof progress.streak !== 'number' || !Number.isFinite(progress.streak)) return false;
+  if (!(progress.lastDay === null || typeof progress.lastDay === 'string')) return false;
+  if (!isPlainProgressObject(progress.bestTimes)) return false;
+  if (!isPlainProgressObject(progress.notes)) return false;
+  if (!isPlainProgressObject(progress.quizScores)) return false;
+  if (!Array.isArray(progress.achievements)) return false;
+  if (!Array.isArray(progress.unlocks)) return false;
+  if (!isPlainProgressObject(progress.preferences)) return false;
+  if (!isPlainProgressObject(progress.settings)) return false;
+  return true;
+}
+
+function markProgressClean() {
+  progressDirty = false;
+}
+
+function markProgressDirty() {
+  progressDirty = true;
+}
+
+function needsProgressFlush() {
+  return progressDirty || Boolean(syncTimer);
+}
+
 /**
  * STARTUP SYNC BARRIER:
  * AUTH → LOAD SERVER PROGRESS → HYDRATE/INIT → SYNC ENABLED → then uploads.
  * Events before sync is enabled must NOT overwrite server progress.
+ *
+ * LWW honesty (Phase 9 / WAL-251): concurrent edits from two active clients remain
+ * full-snapshot last-write-wins. WAL-202 only stops unload/hydration from writing a
+ * clean snapshot — it does not add optimistic concurrency.
  */
 async function loadProgressWithBarrier() {
   disableSync();
+  progressReady = false;
+  markProgressClean();
   try {
     const result = await api.getProgress();
     if (result?.progress) {
       window.GhostProgress?.hydrate(result.progress);
+      // Hydrated DOM/state population is not a user edit — stay clean, do not echo PUT.
+      progressReady = true;
+      markProgressClean();
     }
   } catch (error) {
     if (error?.code === 'progress_not_found' || error?.status === 404) {
-      const local = window.GhostProgress?.snapshot() || {};
+      const local = window.GhostProgress?.snapshot();
+      if (!isValidProgressSnapshot(local)) {
+        throw error;
+      }
       await api.putProgress(local);
+      progressReady = true;
+      markProgressClean();
     } else {
       throw error;
     }
@@ -138,8 +196,45 @@ async function loadProgressWithBarrier() {
 }
 
 async function saveProgress(progress) {
-  if (!syncEnabled || !api.isAuthenticated()) return;
+  if (!syncEnabled || !api.isAuthenticated() || !progressReady) return;
+  if (!isValidProgressSnapshot(progress)) return;
   await api.putProgress(progress);
+}
+
+/**
+ * Pull open mission notes into ST, then PUT full progress only when dirty/pending.
+ * Logout / pagehide previously cleared the debounce timer and skipped the pending
+ * upload, so notes that only lived locally were wiped on the next hydrate.
+ *
+ * Returns true when there was nothing to flush, or a PUT succeeded.
+ * Returns false when a required flush could not be completed safely.
+ *
+ * Unload must never write a clean or hydration-derived snapshot (LWW risk reduction only;
+ * see WAL-251 for real concurrency protection).
+ */
+async function flushProgressToServer({ keepalive = false } = {}) {
+  const hadPending = Boolean(syncTimer);
+  clearTimeout(syncTimer);
+  syncTimer = null;
+
+  if (!syncEnabled || !api.isAuthenticated()) return false;
+  if (!progressDirty && !hadPending) return true;
+
+  try {
+    if (typeof window.captureNoteFromDom === 'function') {
+      window.captureNoteFromDom();
+    }
+  } catch {
+    // DOM may be mid-teardown
+  }
+
+  if (!progressReady) return false;
+  const progress = window.GhostProgress?.snapshot();
+  if (!isValidProgressSnapshot(progress)) return false;
+
+  await api.putProgress(progress, { keepalive });
+  markProgressClean();
+  return true;
 }
 
 function updateProfile() {
@@ -312,27 +407,79 @@ $('auth-reset-submit').onclick = () => {
 $('profile-trigger').onclick = () => $('profile-panel').classList.toggle('auth-hidden');
 
 $('auth-logout').onclick = async () => {
+  // One final valid flush while still authenticated — only if dirty/pending.
+  let flushOk = true;
+  const flushAttempted = api.isAuthenticated() && syncEnabled && needsProgressFlush();
+  if (flushAttempted) {
+    try {
+      flushOk = await flushProgressToServer();
+    } catch {
+      flushOk = false;
+    }
+  }
   disableSync();
   clearTimeout(syncTimer);
+  syncTimer = null;
+  progressReady = false;
+  markProgressClean();
   try {
     const result = await api.logout();
     if (!result.serverOk) {
       // Local tokens cleared; server session may remain until expiry/rotation.
       message('Signed out locally. Server logout could not be confirmed.', true);
+    } else if (flushAttempted && !flushOk) {
+      message('Signed out. Progress sync may be incomplete — notes might not be saved.', true);
     }
   } catch {
     await api.clearSession();
+    if (flushAttempted && !flushOk) {
+      message('Signed out locally. Progress sync may be incomplete — notes might not be saved.', true);
+    }
   }
   profile = null;
   showGate(true);
   $('profile-panel').classList.add('auth-hidden');
 };
 
-window.addEventListener('ghost-progress-changed', (event) => {
+window.addEventListener('ghost-progress-changed', () => {
   if (!syncEnabled) return;
+  markProgressDirty();
   clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => saveProgress(event.detail).catch(() => {}), 700);
+  // Always snapshot at flush time so notes typed after the event are included.
+  // Schema gate rejects {} / malformed — never PUT an empty replace body.
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    const progress = window.GhostProgress?.snapshot();
+    if (!isValidProgressSnapshot(progress)) return;
+    saveProgress(progress)
+      .then(() => {
+        markProgressClean();
+      })
+      .catch(() => {
+        // Stay dirty so logout/unload can retry.
+      });
+  }, 700);
   updateProfile();
+});
+
+// Electron quit / tab close: flush only when dirty/pending (never clean hydrate echo).
+function flushOnUnload() {
+  if (!api.isAuthenticated() || !syncEnabled) return;
+  if (!needsProgressFlush()) return;
+  if (unloadFlushStarted) return;
+  unloadFlushStarted = true;
+  void flushProgressToServer({ keepalive: true }).catch(() => {
+    // Allow pagehide to retry if visibilitychange flush failed.
+    unloadFlushStarted = false;
+  });
+}
+window.addEventListener('pagehide', flushOnUnload);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    flushOnUnload();
+  } else {
+    unloadFlushStarted = false;
+  }
 });
 
 async function initializeAuthentication() {

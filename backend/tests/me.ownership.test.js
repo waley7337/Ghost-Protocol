@@ -385,7 +385,10 @@ test('progress GET 404 then PUT/GET round-trip; rejects invalid payloads', async
       headers: { authorization: `Bearer ${user.accessToken}` }
     });
     assert.equal(get.status, 200);
-    assert.deepEqual((await get.json()).progress.solved, ['lab-01']);
+    const gotProgress = (await get.json()).progress;
+    assert.deepEqual(gotProgress.solved, ['lab-01']);
+    assert.equal(gotProgress.xp, 300);
+    assert.equal(gotProgress.notes['lab-01'], 'desync');
 
     const badXp = await fetch(`${base}/me/progress`, {
       method: 'PUT',
@@ -396,6 +399,66 @@ test('progress GET 404 then PUT/GET round-trip; rejects invalid payloads', async
       body: JSON.stringify({ xp: 'nope' })
     });
     assert.equal(badXp.status, 400);
+  });
+});
+
+test('progress notes: accept/return strings; reject oversized and malformed notes', async () => {
+  await withServer(async ({ base }) => {
+    const user = await register(base, 'notes@example.com');
+
+    const ok = await fetch(`${base}/me/progress`, {
+      method: 'PUT',
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        xp: 150,
+        solved: ['cl_te_basic'],
+        notes: { cl_te_basic: 'mission note' }
+      })
+    });
+    assert.equal(ok.status, 200);
+    assert.equal((await ok.json()).progress.notes.cl_te_basic, 'mission note');
+
+    const get = await fetch(`${base}/me/progress`, {
+      headers: { authorization: `Bearer ${user.accessToken}` }
+    });
+    assert.equal((await get.json()).progress.notes.cl_te_basic, 'mission note');
+
+    // Legacy / partial body without notes key still accepted (defaults notes to {}).
+    const noNotesKey = validateProgressPayload({ xp: 10, solved: ['cl_te_basic'] });
+    assert.deepEqual(noNotesKey.notes, {});
+    assert.equal(noNotesKey.xp, 10);
+
+    assert.throws(
+      () =>
+        validateProgressPayload({
+          notes: { cl_te_basic: 'x'.repeat(LIMITS.maxStringValueLength + 1) }
+        }),
+      (error) => error instanceof AppError && error.code === 'invalid_notes'
+    );
+    assert.throws(
+      () => validateProgressPayload({ notes: ['not-an-object'] }),
+      (error) => error instanceof AppError && error.code === 'invalid_notes'
+    );
+    assert.throws(
+      () => validateProgressPayload({ notes: { '': 'empty key' } }),
+      (error) => error instanceof AppError && error.code === 'invalid_notes'
+    );
+
+    const tooLong = await fetch(`${base}/me/progress`, {
+      method: 'PUT',
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        notes: { cl_te_basic: 'y'.repeat(LIMITS.maxStringValueLength + 1) }
+      })
+    });
+    assert.equal(tooLong.status, 400);
+    assert.equal((await tooLong.json()).error, 'invalid_notes');
   });
 });
 
@@ -418,7 +481,11 @@ test('cross-user isolation: A cannot read or modify B profile/progress', async (
         authorization: `Bearer ${b.accessToken}`,
         'content-type': 'application/json'
       },
-      body: JSON.stringify({ xp: 999, solved: ['secret-lab'] })
+      body: JSON.stringify({
+        xp: 999,
+        solved: ['secret-lab'],
+        notes: { 'secret-lab': 'bob private note' }
+      })
     });
 
     const bobId = [...pool._users.values()].find((u) => u.email === 'bob@example.com').id;
@@ -462,12 +529,19 @@ test('cross-user isolation: A cannot read or modify B profile/progress', async (
         xp: 1,
         user_id: bobId,
         userId: bobId,
-        solved: ['a-only']
+        solved: ['a-only'],
+        notes: { 'a-only': 'alice note must not land on bob' }
       })
     });
     assert.equal(aPutProgress.status, 200);
     assert.equal(pool._progress.get(bobId).progress.xp, 999);
     assert.deepEqual(pool._progress.get(bobId).progress.solved, ['secret-lab']);
+    assert.equal(pool._progress.get(bobId).progress.notes['secret-lab'], 'bob private note');
+    assert.equal(pool._progress.get(bobId).progress.notes['a-only'], undefined);
+
+    const aliceId = [...pool._users.values()].find((u) => u.email === 'alice@example.com').id;
+    assert.equal(pool._progress.get(aliceId).progress.notes['a-only'], 'alice note must not land on bob');
+    assert.equal(pool._progress.get(aliceId).progress.xp, 1);
   });
 });
 
