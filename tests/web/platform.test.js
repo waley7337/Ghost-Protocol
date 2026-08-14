@@ -126,11 +126,22 @@ test('index.html loads public config before auth bundle', () => {
   assert.ok(bundleIdx > configIdx);
 });
 
+test('index.html declares Ghost Protocol favicon from official brand icons', () => {
+  const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  assert.match(html, /rel=["']icon["'][^>]*href=["']assets\/icons\/favicon\.png["']/);
+  assert.match(html, /rel=["']icon["'][^>]*href=["']assets\/icons\/icon\.ico["']/);
+  assert.match(html, /rel=["']apple-touch-icon["'][^>]*href=["']assets\/icons\/png\/256x256\.png["']/);
+  assert.ok(fs.existsSync(path.join(root, 'assets', 'icons', 'favicon.png')));
+  assert.ok(fs.existsSync(path.join(root, 'assets', 'icons', 'icon.ico')));
+  assert.ok(fs.existsSync(path.join(root, 'assets', 'icons', 'png', '256x256.png')));
+});
+
 test('vercel.json points at web static output', () => {
   const vercel = JSON.parse(fs.readFileSync(path.join(root, 'vercel.json'), 'utf8'));
   assert.equal(vercel.outputDirectory, 'dist/web');
   assert.equal(vercel.buildCommand, 'npm run build:web');
   assert.equal(vercel.framework, null);
+  assert.match(vercel.rewrites[0].source, /favicon/);
   const configHeader = vercel.headers.find((h) => h.source === '/assets/config.js');
   assert.ok(configHeader);
   assert.equal(

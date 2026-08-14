@@ -84,6 +84,9 @@ test('production-simulated build:web ships Railway API and no localhost API conf
   assert.match(html, /connect-src[^"]*https:\/\/ghost-protocol-production-f7ef\.up\.railway\.app/);
   assert.ok(html.indexOf('assets/config.js') < html.indexOf('assets/auth.bundle.js'));
   assert.match(bundle, /\/auth\/google/);
+  assert.match(html, /assets\/icons\/favicon\.png/);
+  assert.ok(fs.existsSync(path.join(distWeb, 'favicon.ico')));
+  assert.ok(fs.existsSync(path.join(distWeb, 'assets', 'icons', 'favicon.png')));
 });
 
 test('production-simulated build:web fails when API URL missing', () => {

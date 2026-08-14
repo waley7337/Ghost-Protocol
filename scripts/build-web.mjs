@@ -122,6 +122,8 @@ function main() {
   // 3) Copy SPA assets
   copyFile(path.join(root, 'index.html'), path.join(outDir, 'index.html'));
   copyDir(path.join(root, 'assets'), path.join(outDir, 'assets'));
+  // Root favicon for browsers that auto-request /favicon.ico (same official mark).
+  copyFile(path.join(root, 'assets', 'icons', 'icon.ico'), path.join(outDir, 'favicon.ico'));
 
   // 4) Public API URL only (Vercel env: GHOST_API_BASE_URL)
   const apiBase = resolveWebBuildApiBaseUrl(process.env);
