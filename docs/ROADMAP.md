@@ -107,9 +107,9 @@ Do **not** treat `IMPLEMENTED` as production-verified. Do **not** invent histori
 - [x] Automated suites executed; pass/fail/skip totals recorded
 - [x] `docs/PRODUCTION-QA-CHECKLIST.md` published for web + Electron + sync
 - [x] Production manual checklist executed by operator (2026-08-14) — see checklist + verification docs
-- [ ] No open **Confirmed defects** that block core learning loop — **E4 mission-notes persistence** fixed in code; **pending operator production retest** (not PASS yet)
+- [x] No open **Confirmed defects** that block core learning loop — **E4 / WAL-202** production retest **PASS** 14 August 2026
 
-**Phase 8 status (2026-08-14):** **In Progress.** Manual QA complete for A–I except **E4**. **WAL-202** (mission notes persistence) remains **In Progress** — code fix landed; **production retest pending** (do not mark E4 PASS / Phase 8 Done until operator QA). Email vs Google = separate identities (not a sync bug).
+**Phase 8 status (14 August 2026):** **Done.** Manual production QA passed across Vercel, Railway, and packaged Electron. **WAL-202** production retest PASS (notes leave/reopen, web+Electron logout/login, web↔Electron sync; solved/XP/rank intact). Remaining limitations (password reset stub, unfinished UI shells, etc.) and Phase 9 tech debt (**WAL-251** concurrency) remain open — not claimed as done.
 
 ---
 
@@ -119,7 +119,7 @@ Do **not** treat `IMPLEMENTED` as production-verified. Do **not** invent histori
 
 **Goal:** Threat-informed review of auth, session storage, CORS, CSP, OAuth, ownership isolation, secret handling, and residual production risks — without claiming OS Keychain proof from unit tests.
 
-**Do not start Phase 9 implementation until Phase 8 / WAL-202 production retest passes.**
+**Do not start Phase 9 implementation until intentionally scheduled.** Phase 8 / WAL-202 production acceptance is complete (14 August 2026).
 
 **Definition of done**
 
@@ -187,7 +187,7 @@ Do **not** treat `IMPLEMENTED` as production-verified. Do **not** invent histori
 | Unit tests ≠ Keychain proof | Low | Documented in SECURITY.md |
 | Legacy `supabase/` tree | Low | Historical only; keep out of runtime |
 | Product E2E for missions | Medium | No automated UI tests for labs/XP; relies on manual QA |
-| **E4 / WAL-202 mission notes sync** | **High until retest** | Production FAIL 2026-08-14: notes lost after logout/login. Code fix (flush on logout + input capture); **WAL-202 In Progress — blocked on production retest** |
+| **E4 / WAL-202 mission notes sync** | **Resolved** | Production PASS 14 August 2026 (operator acceptance). Impl `171bb9a9…`; docs `4351b2e5…`; no migration/Railway redeploy. WAL-202 Done. |
 | **WAL-251 progress LWW concurrency** | Medium (Phase 9 debt) | Concurrent active clients can still clobber each other (full-snapshot LWW). Tracked for Phase 9; out of scope for WAL-202 |
 
 ---
@@ -196,10 +196,10 @@ Do **not** treat `IMPLEMENTED` as production-verified. Do **not** invent histori
 
 | Phase | Done when |
 |-------|-----------|
-| **8** | Inventory + automated totals + production checklist artifact; operator completes checklist or documents waivers; core loop defect-free or severity-tracked |
+| **8** | **Complete 14 August 2026** — inventory + automated totals + production checklist; operator acceptance PASS (incl. WAL-202 notes); limitations + Phase 9 debt documented honestly |
 | **9** | Security audit write-up; stale OAuth/deploy claims corrected; residual risks listed with severity |
 | **10** | Cross-platform package smoke + deep-link + signing plan |
 | **11** | Portfolio case study with real production evidence |
 | **12** | Fiverr gig ready with clear security/support boundaries |
 
-**Stop rule:** Do not begin Phase 11/12 work until Phase 8 manual QA is complete (or explicitly deferred with documented risk).
+**Stop rule:** Phase 8 manual QA is complete (14 August 2026). Do not begin Phase 11/12 until Phases 9–10 evidence exists. Do not claim password reset, unfinished UI shells, signing/notarization, Windows/Linux builds, or concurrency protection as done.

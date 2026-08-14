@@ -134,13 +134,13 @@ Legend for **Status**: `IMPLEMENTED` · `PARTIAL` · `PLACEHOLDER` · `BROKEN` �
 
 | Field | Detail |
 |-------|--------|
-| Status | **IMPLEMENTED** (per-mission textarea → `ST.notes` → saveState → sync); **E4 defect fixed pending production retest** |
+| Status | **IMPLEMENTED** (per-mission textarea → `ST.notes` → saveState → sync); **E4 / WAL-202 production PASS** |
 | Source files | `index.html` `captureNoteFromDom` / `saveNote`; `src/auth.js` `flushProgressToServer` on logout |
 | Automated tests | `tests/client/progress.notes.test.js`; backend notes validation/round-trip in `me.ownership.test.js` |
-| Verification performed | Production manual QA 2026-08-14: **E4 FAIL** (notes lost after logout/login; solved/XP OK). Root cause: debounced PUT cancelled on logout; notes often only in DOM until `change`. Fix: capture on input + flush full progress (including notes) before logout. |
-| Result | **FIXED (pending operator retest)** — do not mark PASS until production E4 retest |
-| Missing coverage | Production retest of notes after logout/login and cross-device hydrate |
-| Next action | Operator retest E4 on Vercel + Electron |
+| Verification performed | Production operator acceptance 14 August 2026: notes survived leave/reopen mission, web logout/login, Electron logout/login; same notes on web↔Electron; solved/XP/rank intact. Impl `171bb9a9…`; docs `4351b2e5…`. No migration or Railway redeploy required. |
+| Result | **PASS** (production retest) |
+| Missing coverage | Concurrent multi-client edits → **WAL-251** (Phase 9 debt; LWW unchanged) |
+| Next action | None for Phase 8; concurrency tracked in WAL-251 |
 
 ### Settings
 
@@ -277,7 +277,7 @@ Backend skips: 2× `db.integration.test.js` + 1× `refresh.concurrency.integrati
 | D2 | Medium | `quizScores` / `achievements` / `settings` / `preferences` synced as empty shells — no product UI (E6 documented limitation) |
 | D3 | Low | Stale docs claim OAuth/deploy not implemented |
 | D4 | Low | Soft unlock on progress sync failure can diverge local vs server until next successful sync |
-| **E4 / WAL-202** | **High (learning-loop notes)** | **Production FAIL 2026-08-14:** mission notes autosaved locally but not restored after logout/login (server hydrate wiped them). Solved/XP persisted. **WAL-202 In Progress** — code fix applied; **pending operator production retest** — not PASS. Concurrent multi-client LWW → **WAL-251** (Phase 9 debt). |
+| **E4 / WAL-202** | **Resolved** | **Production PASS 14 August 2026** (operator acceptance). Notes persist leave/reopen, web+Electron logout/login, web↔Electron sync; solved/XP/rank intact. Impl `171bb9a9…`; docs `4351b2e5…`; no migration/Railway redeploy. Concurrent multi-client LWW remains **WAL-251** (Phase 9 debt). |
 
 **Account clarification:** Email and Google are intentionally separate identities with separate progress — not a sync bug.
 
@@ -291,7 +291,7 @@ Backend skips: 2× `db.integration.test.js` + 1× `refresh.concurrency.integrati
 | B Web email auth | B1–B5 **PASS** |
 | C Web Google OAuth | C1–C3 **PASS** |
 | D Profile/progress | D1 **PASS**, D2 **N/A**, D3 **PASS** |
-| E Missions/progress | E1–E3 **PASS**; **E4 FAIL→fixed pending retest**; E5 **PASS**; E6 **PASS WITH DOCUMENTED LIMITATION**; E7 **PASS** |
+| E Missions/progress | E1–E3 **PASS**; **E4 / WAL-202 PASS** (production retest 14 Aug 2026); E5 **PASS**; E6 **PASS WITH DOCUMENTED LIMITATION**; E7 **PASS** |
 | F Cross-device sync | F1–F5 **PASS** (web↔Electron; browser memory-only on hard refresh) |
 | G Session restoration | G1–G4 **PASS** (Electron safeStorage; web hard refresh → auth gate) |
 | H Electron OAuth | H1–H2 **PASS**; H3 **PASS WITH UX LIMITATION** |
@@ -307,6 +307,6 @@ Full row-level evidence: `docs/PRODUCTION-QA-CHECKLIST.md`.
 |------|-------|
 | Inventory matrix | Complete |
 | Automated suites | Re-run after E4 fix; see final report totals |
-| Production manual QA | **Executed 2026-08-14** — all sections PASS/N/A/limitation except **E4** |
-| Read-only prod health | `GET /health` **200**; `GET /health/db` **200** (operator A1–A2) |
-| Phase 8 complete? | **In Progress — blocked only on E4 / WAL-202 production retest** (do not close until operator QA PASS) |
+| Production manual QA | **PASS 14 August 2026** — A–I complete (E4 retest PASS; E6/H3 documented limitations) across Vercel, Railway, packaged Electron |
+| Read-only prod health | `GET /health` **200**; `GET /health/db` **200** (operator A1–A2); Vercel Ready |
+| Phase 8 complete? | **Done** — completed 14 August 2026. Remaining limitations and Phase 9 tech debt (incl. WAL-251) stay open; no claims for password reset, unfinished UI shells, signing/notarization, Windows/Linux builds, or concurrency protection. |

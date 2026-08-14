@@ -66,7 +66,7 @@ Mark each row: ☐ Pass · ☐ Fail · ☐ Blocked · ☐ N/A · ☑ as executed
 | E1 | Open OPS CENTER; pick an unsolved practitioner lab | ACTIVE MISSION loads with editor | ☑ **PASS** | — |
 | E2 | Send an **incorrect** payload | Non-win response / toast; XP unchanged; not marked solved | ☑ **PASS** | — |
 | E3 | Send a **correct** payload (use solution if needed for QA) | Win; XP increases; solved badge; optional rank-up popup | ☑ **PASS** | LAB-01; 150 XP; Recruit |
-| E4 | Add mission notes; leave lab; return; logout/login | Notes persisted through local nav **and** server hydrate | ☑ **FAIL** → **FIXED (pending operator retest)** | Notes disappeared after logout/login; core solved progress persisted. Code fix: flush notes to `/me/progress` before logout; capture notes on input. Awaiting production retest. |
+| E4 | Add mission notes; leave lab; return; logout/login | Notes persisted through local nav **and** server hydrate | ☑ **PASS** | Operator retest 14 Aug 2026: notes survived leave/reopen, web logout/login, Electron logout/login; same notes web↔Electron; solved/XP/rank intact. WAL-202 Done. |
 | E5 | Open RANKS | Current rank highlighted consistent with XP | ☑ **PASS** | — |
 | E6 | Achievements / Quizzes / Settings | **Honest check:** no achievements/quiz/settings product UI — confirm absence | ☑ **PASS WITH DOCUMENTED LIMITATION** | quizzes/achievements/settings are progress schema shells only; no product UI |
 | E7 | Wait ~2s after solve (debounce sync) | No sync error toast | ☑ **PASS** | — |
@@ -80,7 +80,7 @@ Use **one** disposable account.
 | # | Steps | Expected | Result | Evidence |
 |---|-------|----------|--------|----------|
 | F1 | On web: complete E1–E3; note XP + solved lab id | Baseline | ☑ **PASS** | — |
-| F2 | On Electron: sign in same account (email or Google) | Progress matches web (solved + XP; notes after E4 fix) | ☑ **PASS** | web↔Electron |
+| F2 | On Electron: sign in same account (email or Google) | Progress matches web (solved + XP + notes) | ☑ **PASS** | web↔Electron notes sync PASS |
 | F3 | On Electron: solve a **different** lab | XP updates locally | ☑ **PASS** | — |
 | F4 | On web: log out/in or restore session (see web limits) | Electron changes appear after successful hydrate | ☑ **PASS** | — |
 | F5 | Document web session limitation | Full browser tab close / hard refresh ends web session (memory-only) — must re-login | ☑ **PASS** | browser memory-only on hard refresh |
@@ -92,7 +92,7 @@ Use **one** disposable account.
 | # | Steps | Expected | Result | Evidence |
 |---|-------|----------|--------|----------|
 | G1 | Electron: logout → login | Progress intact from server | ☑ **PASS** | — |
-| G2 | Web: logout → login | Progress intact from server (solved/XP; notes pending E4 retest) | ☑ **PASS** | — |
+| G2 | Web: logout → login | Progress intact from server (solved/XP/notes) | ☑ **PASS** | notes + solved/XP after web logout/login |
 | G3 | Electron: quit app fully → relaunch | Session restores without password if safeStorage available | ☑ **PASS** | Electron safeStorage |
 | G4 | Web: hard refresh (F5) while signed in | **Expect re-login** (memory tokens cleared) | ☑ **PASS** | web hard refresh → auth gate |
 
@@ -137,9 +137,11 @@ Collect into a private folder (do not commit secrets):
 
 | Role | Name | Date | Result |
 |------|------|------|--------|
-| Operator | (completed manual QA) | 2026-08-14 | ☑ Blocked on **E4** production retest after code fix |
-| Engineering | E4 / WAL-202 fix ready for deploy | 2026-08-14 | Automated suites green (69/69 + backend 57/3 skip); **WAL-202 + Phase 8 stay In Progress** until E4 retest PASS |
+| Operator | Production acceptance | 2026-08-14 | ☑ **PASS** — Phase 8 complete (E4 / WAL-202 retest PASS) |
+| Engineering | Docs close-out | 2026-08-14 | Automated suites green (69/69 + backend 57/3 skip); WAL-202 Done; Phase 8 Done |
 
-**Blocked items:** E4 / **WAL-202** (mission notes persistence through logout/login + hydrate) — **fixed in code; pending operator production retest**  
-**Waivers:** E6 documented limitation (shell fields); H3 UX limitation (cancel messaging / leftover browser tab); email vs Google = separate identities (not a sync bug)  
-**Phase 9 debt (not this retest):** **WAL-251** — optimistic concurrency for concurrent multi-client progress edits (current model remains full-snapshot LWW)
+**Blocked items:** None for Phase 8. E4 / **WAL-202** production retest **PASS** 14 August 2026.
+
+**Waivers / documented limitations:** E6 (quizzes/achievements/settings schema shells only — no product UI); H3 UX limitation (cancel messaging / leftover browser tab); password reset stub; email vs Google = separate identities (not a sync bug). Do **not** claim signing/notarization, Windows/Linux builds, or concurrency protection.
+
+**Phase 9 debt (open):** **WAL-251** — optimistic concurrency for concurrent multi-client progress edits (current model remains full-snapshot LWW); Phase 9 parent **WAL-186**
